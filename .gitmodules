@@ -1,0 +1,3 @@
+[submodule "vendor/wallop"]
+	path = vendor/wallop
+	url = https://github.com/electric-lump-software/wallop.git

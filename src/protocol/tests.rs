@@ -1,34 +1,53 @@
 use super::*;
-use sha2::{Digest, Sha256};
 
-// --- entry_hash ---
+const ENTRY_HASH_VECTORS: &str = include_str!("../../vendor/wallop/spec/vectors/entry-hash.json");
+const COMPUTE_SEED_VECTORS: &str =
+    include_str!("../../vendor/wallop/spec/vectors/compute-seed.json");
+const END_TO_END_VECTOR: &str = include_str!("../../vendor/wallop/spec/vectors/end-to-end.json");
+
+fn entries_from_json(arr: &[serde_json::Value]) -> Vec<Entry> {
+    arr.iter()
+        .map(|e| Entry {
+            id: e["id"].as_str().unwrap().into(),
+            weight: e["weight"].as_u64().unwrap() as u32,
+        })
+        .collect()
+}
+
+// --- entry_hash (from entry-hash.json) ---
 
 #[test]
-fn entry_hash_matches_vector_p1() {
-    let entries = vec![
-        Entry {
-            id: "ticket-47".into(),
-            weight: 1,
-        },
-        Entry {
-            id: "ticket-48".into(),
-            weight: 1,
-        },
-        Entry {
-            id: "ticket-49".into(),
-            weight: 1,
-        },
-    ];
+fn entry_hash_equal_weight() {
+    let vectors: serde_json::Value = serde_json::from_str(ENTRY_HASH_VECTORS).unwrap();
+    let v = &vectors["vectors"][0];
 
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
     let (hash, jcs) = entry_hash(&entries);
 
-    let expected_jcs = r#"{"entries":[{"id":"ticket-47","weight":1},{"id":"ticket-48","weight":1},{"id":"ticket-49","weight":1}]}"#;
+    assert_eq!(jcs, v["expected_jcs"].as_str().unwrap());
+    assert_eq!(hash, v["expected_hash"].as_str().unwrap());
+}
 
-    assert_eq!(jcs, expected_jcs);
-    assert_eq!(
-        hash,
-        "6056fbb6c98a0f04404adb013192d284bfec98975e2a7975395c3bcd4ad59577"
-    );
+#[test]
+fn entry_hash_weighted() {
+    let vectors: serde_json::Value = serde_json::from_str(ENTRY_HASH_VECTORS).unwrap();
+    let v = &vectors["vectors"][1];
+
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
+    let (hash, _) = entry_hash(&entries);
+
+    assert_eq!(hash, v["expected_hash"].as_str().unwrap());
+}
+
+#[test]
+fn entry_hash_single() {
+    let vectors: serde_json::Value = serde_json::from_str(ENTRY_HASH_VECTORS).unwrap();
+    let v = &vectors["vectors"][2];
+
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
+    let (hash, _) = entry_hash(&entries);
+
+    assert_eq!(hash, v["expected_hash"].as_str().unwrap());
 }
 
 #[test]
@@ -56,24 +75,45 @@ fn entry_hash_sorts_by_id_regardless_of_input_order() {
     assert_eq!(entry_hash(&entries_a), entry_hash(&entries_b));
 }
 
-// --- compute_seed ---
+// --- compute_seed (from compute-seed.json) ---
 
 #[test]
-fn compute_seed_matches_vector_p2() {
-    let drand = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    let entry_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    let weather = "1013";
+fn compute_seed_drand_plus_weather() {
+    let vectors: serde_json::Value = serde_json::from_str(COMPUTE_SEED_VECTORS).unwrap();
+    let v = &vectors["vectors"][0];
 
-    let expected_json = r#"{"drand_randomness":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789","entry_hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","weather_value":"1013"}"#;
+    let entry_hash_val = v["entry_hash"].as_str().unwrap();
+    let drand = v["drand_randomness"].as_str().unwrap();
+    let weather = v["weather_value"].as_str().unwrap();
 
-    let (seed_bytes, seed_json) = compute_seed(entry_hash, drand, weather);
+    let (seed_bytes, seed_json) = compute_seed(entry_hash_val, drand, weather);
 
-    assert_eq!(seed_json, expected_json);
+    assert_eq!(seed_json, v["expected_jcs"].as_str().unwrap());
     assert_eq!(seed_bytes.len(), 32);
     assert_eq!(
         hex::encode(seed_bytes),
-        "4c1ae3e623dd22859d869f4d0cb34d3acaf4cf7907dbb472ea690e1400bfb0d0"
+        v["expected_seed_hex"].as_str().unwrap()
     );
+}
+
+#[test]
+fn compute_seed_drand_only_from_vector() {
+    let vectors: serde_json::Value = serde_json::from_str(COMPUTE_SEED_VECTORS).unwrap();
+    let v = &vectors["vectors"][1];
+
+    let entry_hash_val = v["entry_hash"].as_str().unwrap();
+    let drand = v["drand_randomness"].as_str().unwrap();
+
+    let (seed_bytes, seed_json) = compute_seed_drand_only(entry_hash_val, drand);
+
+    assert_eq!(seed_bytes.len(), 32);
+    assert_eq!(
+        hex::encode(seed_bytes),
+        v["expected_seed_hex"].as_str().unwrap()
+    );
+
+    // Verify weather key is omitted, not null
+    assert!(!seed_json.contains("weather"));
 }
 
 #[test]
@@ -85,88 +125,55 @@ fn compute_seed_jcs_sorts_keys_alphabetically() {
     );
 }
 
-// --- compute_seed_drand_only ---
-
-#[test]
-fn compute_seed_drand_only_produces_valid_seed() {
-    let drand = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    let entry_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
-    let expected_json = r#"{"drand_randomness":"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789","entry_hash":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"}"#;
-
-    let (seed_bytes, seed_json) = compute_seed_drand_only(entry_hash, drand);
-
-    assert_eq!(seed_json, expected_json);
-    assert_eq!(seed_bytes.len(), 32);
-
-    let expected_hash: [u8; 32] = Sha256::digest(expected_json.as_bytes()).into();
-    assert_eq!(seed_bytes, expected_hash);
-}
-
 #[test]
 fn drand_only_seed_differs_from_weather_seed() {
-    let drand = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    let entry_hash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-    let weather = "1013";
+    let vectors: serde_json::Value = serde_json::from_str(COMPUTE_SEED_VECTORS).unwrap();
+    let v0 = &vectors["vectors"][0];
+    let v1 = &vectors["vectors"][1];
 
-    let (seed_with_weather, _) = compute_seed(entry_hash, drand, weather);
-    let (seed_drand_only, _) = compute_seed_drand_only(entry_hash, drand);
-
-    assert_ne!(seed_with_weather, seed_drand_only);
+    // Same entry_hash and drand, but one has weather and one doesn't
+    assert_eq!(v0["entry_hash"], v1["entry_hash"]);
+    assert_eq!(v0["drand_randomness"], v1["drand_randomness"]);
+    assert_ne!(
+        v0["expected_seed_hex"].as_str().unwrap(),
+        v1["expected_seed_hex"].as_str().unwrap()
+    );
 }
 
-#[test]
-fn drand_only_json_has_no_weather_key() {
-    let (_, json) = compute_seed_drand_only("bbb", "aaa");
-    assert!(!json.contains("weather"));
-}
+// --- end-to-end (from end-to-end.json) ---
 
 #[test]
-fn vector_p3_end_to_end() {
-    let entries = vec![
-        Entry {
-            id: "ticket-47".into(),
-            weight: 1,
-        },
-        Entry {
-            id: "ticket-48".into(),
-            weight: 1,
-        },
-        Entry {
-            id: "ticket-49".into(),
-            weight: 1,
-        },
-    ];
+fn end_to_end_pipeline() {
+    let vector: serde_json::Value = serde_json::from_str(END_TO_END_VECTOR).unwrap();
+    let input = &vector["input"];
+    let expected = &vector["expected"];
 
-    let drand = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-    let weather = "1013";
+    let entries = entries_from_json(input["entries"].as_array().unwrap());
+    let drand = input["drand_randomness"].as_str().unwrap();
+    let weather = input["weather_value"].as_str().unwrap();
+    let count = input["winner_count"].as_u64().unwrap() as u32;
 
     let (ehash, _jcs) = entry_hash(&entries);
     let (seed_bytes, _json) = compute_seed(&ehash, drand, weather);
-    let result = fair_pick_rs::draw(&entries, &seed_bytes, 2).unwrap();
+    let result = fair_pick_rs::draw(&entries, &seed_bytes, count).unwrap();
 
-    assert_eq!(
-        ehash,
-        "6056fbb6c98a0f04404adb013192d284bfec98975e2a7975395c3bcd4ad59577"
-    );
+    assert_eq!(ehash, expected["entry_hash"].as_str().unwrap());
     assert_eq!(
         hex::encode(seed_bytes),
-        "ced93f50d73a619701e9e865eb03fb4540a7232a588c707f85754aa41e3fb037"
+        expected["seed_hex"].as_str().unwrap()
     );
-    assert_eq!(
-        result,
-        vec![
-            fair_pick_rs::Winner {
-                position: 1,
-                entry_id: "ticket-48".into()
-            },
-            fair_pick_rs::Winner {
-                position: 2,
-                entry_id: "ticket-47".into()
-            },
-        ]
-    );
+
+    let expected_winners: Vec<&str> = expected["winners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    let actual_winners: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
+    assert_eq!(actual_winners, expected_winners);
 }
+
+// --- escaping (behavioral, no vector) ---
 
 #[test]
 fn entry_hash_escapes_special_characters_in_id() {

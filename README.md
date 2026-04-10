@@ -13,6 +13,24 @@ The draw algorithm itself lives in [`fair_pick_rs`](https://github.com/electric-
 
 ---
 
+## Getting started
+
+```bash
+git clone --recursive https://github.com/electric-lump-software/wallop_rs.git
+cd wallop_rs
+cargo test
+```
+
+If you've already cloned without `--recursive`:
+
+```bash
+git submodule update --init
+```
+
+This fetches the shared test vectors from the [wallop](https://github.com/electric-lump-software/wallop) repo. The build will tell you if they're missing.
+
+---
+
 ## Functions
 
 ### `entry_hash(entries: &[Entry]) -> (String, String)`
@@ -130,34 +148,9 @@ wasm-pack build --target web
 
 ## Test vectors
 
-All three vectors are enforced by the test suite (`cargo test`).
+Test vectors are shared with the Elixir implementation via a git submodule pointing at [`wallop/spec/vectors/`](https://github.com/electric-lump-software/wallop/tree/main/spec/vectors). Both implementations verify against the same frozen JSON files — a protocol change is one edit, and both CIs catch drift immediately.
 
-### P-1 — entry hash
-
-| Field | Value |
-|---|---|
-| Input entries | `ticket-47` w=1, `ticket-48` w=1, `ticket-49` w=1 |
-| JCS | `{"entries":[{"id":"ticket-47","weight":1},{"id":"ticket-48","weight":1},{"id":"ticket-49","weight":1}]}` |
-| SHA-256 | `6056fbb6c98a0f04404adb013192d284bfec98975e2a7975395c3bcd4ad59577` |
-
-### P-2 — seed derivation
-
-| Field | Value |
-|---|---|
-| `entry_hash` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
-| `drand_randomness` | `abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789` |
-| `weather_value` | `1013` |
-| JCS | `{"drand_randomness":"abcdef…","entry_hash":"e3b0c4…","weather_value":"1013"}` |
-| SHA-256 | `4c1ae3e623dd22859d869f4d0cb34d3acaf4cf7907dbb472ea690e1400bfb0d0` |
-
-### P-3 — end-to-end
-
-| Field | Value |
-|---|---|
-| Entry hash | `6056fbb6c98a0f04404adb013192d284bfec98975e2a7975395c3bcd4ad59577` |
-| Seed | `ced93f50d73a619701e9e865eb03fb4540a7232a588c707f85754aa41e3fb037` |
-| Winner 1 | `ticket-48` |
-| Winner 2 | `ticket-47` |
+See the [vector README](https://github.com/electric-lump-software/wallop/blob/main/spec/vectors/README.md) for the full list of covered scenarios.
 
 ---
 
