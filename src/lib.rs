@@ -1,6 +1,6 @@
 pub mod bundle;
-pub mod verify_steps;
 pub mod protocol;
+pub mod verify_steps;
 mod wasm;
 
 #[cfg(feature = "cli")]
@@ -359,9 +359,18 @@ mod tests {
         let pk: [u8; 32] = sk.verifying_key().to_bytes();
 
         let entries = vec![
-            Entry { id: "ticket-47".into(), weight: 1 },
-            Entry { id: "ticket-48".into(), weight: 1 },
-            Entry { id: "ticket-49".into(), weight: 1 },
+            Entry {
+                id: "ticket-47".into(),
+                weight: 1,
+            },
+            Entry {
+                id: "ticket-48".into(),
+                weight: 1,
+            },
+            Entry {
+                id: "ticket-49".into(),
+                weight: 1,
+            },
         ];
         let (real_entry_hash, _) = entry_hash(&entries);
 
@@ -371,7 +380,8 @@ mod tests {
             "winner_count": 2,
             "sequence": 1,
             "entry_hash": "0000000000000000000000000000000000000000000000000000000000000000"
-        }).to_string();
+        })
+        .to_string();
         let lock_sig: [u8; 64] = sk.sign(lock_jcs.as_bytes()).to_bytes();
         let lock_hash = protocol::receipts::lock_receipt_hash(&lock_jcs);
 
@@ -382,7 +392,8 @@ mod tests {
             "results": ["ticket-48", "ticket-47"],
             "seed": "cc",
             "weather_value": "1013"
-        }).to_string();
+        })
+        .to_string();
         let exec_sig: [u8; 64] = sk.sign(exec_jcs.as_bytes()).to_bytes();
 
         let result = verify_full(
@@ -390,8 +401,11 @@ mod tests {
         );
 
         // Should fail because lock receipt entry_hash doesn't match
-        assert_eq!(result, Ok(false),
-            "verify_full should reject when lock receipt entry_hash differs from computed");
+        assert_eq!(
+            result,
+            Ok(false),
+            "verify_full should reject when lock receipt entry_hash differs from computed"
+        );
     }
 
     #[test]

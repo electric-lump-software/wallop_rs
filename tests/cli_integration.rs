@@ -5,9 +5,9 @@
 
 use ed25519_dalek::{Signer, SigningKey};
 use wallop_rs::bundle::ProofBundle;
-use wallop_rs::verify_steps::{verify_bundle, StepStatus};
-use wallop_rs::{Entry, compute_seed, compute_seed_drand_only, draw, entry_hash};
 use wallop_rs::protocol::receipts::lock_receipt_hash;
+use wallop_rs::verify_steps::{StepStatus, verify_bundle};
+use wallop_rs::{Entry, compute_seed, compute_seed_drand_only, draw, entry_hash};
 
 fn test_signing_key() -> SigningKey {
     let secret_bytes: [u8; 32] =
@@ -52,7 +52,8 @@ fn build_valid_bundle(entries: &[Entry], weather: Option<&str>, winner_count: u3
         "weather_station": "middle-wallop",
         "weather_time": "2026-04-09T12:10:00.000000Z",
         "winner_count": winner_count
-    }).to_string();
+    })
+    .to_string();
     let lock_sig_hex = hex::encode(sk.sign(lock_jcs.as_bytes()).to_bytes());
     let lrh = lock_receipt_hash(&lock_jcs);
 
@@ -86,7 +87,10 @@ fn build_valid_bundle(entries: &[Entry], weather: Option<&str>, winner_count: u3
     entropy.insert("drand_round".into(), serde_json::json!(12345));
     entropy.insert("drand_randomness".into(), serde_json::json!(drand));
     entropy.insert("drand_signature".into(), serde_json::json!("00".repeat(48)));
-    entropy.insert("drand_chain_hash".into(), serde_json::json!("52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971"));
+    entropy.insert(
+        "drand_chain_hash".into(),
+        serde_json::json!("52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971"),
+    );
     if let Some(w) = weather {
         entropy.insert("weather_value".into(), serde_json::json!(w));
     }
@@ -112,32 +116,59 @@ fn build_valid_bundle(entries: &[Entry], weather: Option<&str>, winner_count: u3
 }
 
 fn run_verify_full(bundle: &ProofBundle) -> bool {
-    let entries: Vec<Entry> = bundle.entries.iter()
-        .map(|e| Entry { id: e.id.clone(), weight: e.weight })
+    let entries: Vec<Entry> = bundle
+        .entries
+        .iter()
+        .map(|e| Entry {
+            id: e.id.clone(),
+            weight: e.weight,
+        })
         .collect();
     let lock_sig: [u8; 64] = hex::decode(&bundle.lock_receipt.signature_hex)
-        .unwrap().try_into().unwrap();
+        .unwrap()
+        .try_into()
+        .unwrap();
     let op_pk: [u8; 32] = hex::decode(&bundle.lock_receipt.public_key_hex)
-        .unwrap().try_into().unwrap();
+        .unwrap()
+        .try_into()
+        .unwrap();
     let exec_sig: [u8; 64] = hex::decode(&bundle.execution_receipt.signature_hex)
-        .unwrap().try_into().unwrap();
+        .unwrap()
+        .try_into()
+        .unwrap();
     let infra_pk: [u8; 32] = hex::decode(&bundle.execution_receipt.public_key_hex)
-        .unwrap().try_into().unwrap();
+        .unwrap()
+        .try_into()
+        .unwrap();
 
     wallop_rs::verify_full(
-        &bundle.lock_receipt.payload_jcs, &lock_sig, &op_pk,
-        &bundle.execution_receipt.payload_jcs, &exec_sig, &infra_pk,
+        &bundle.lock_receipt.payload_jcs,
+        &lock_sig,
+        &op_pk,
+        &bundle.execution_receipt.payload_jcs,
+        &exec_sig,
+        &infra_pk,
         &entries,
-    ).unwrap_or(false)
+    )
+    .unwrap_or(false)
 }
 
 /// Drift guard: step-by-step (steps 1-7) must agree with verify_full() on valid bundles.
 #[test]
 fn step_by_step_agrees_with_verify_full() {
     let entries = vec![
-        Entry { id: "ticket-47".into(), weight: 1 },
-        Entry { id: "ticket-48".into(), weight: 1 },
-        Entry { id: "ticket-49".into(), weight: 1 },
+        Entry {
+            id: "ticket-47".into(),
+            weight: 1,
+        },
+        Entry {
+            id: "ticket-48".into(),
+            weight: 1,
+        },
+        Entry {
+            id: "ticket-49".into(),
+            weight: 1,
+        },
     ];
 
     // Test with weather
@@ -145,42 +176,60 @@ fn step_by_step_agrees_with_verify_full() {
     let bundle = ProofBundle::from_json(&json).unwrap();
     let report = verify_bundle(&bundle);
     // Check steps 1-7 individually (step 8 BLS is a skip without real drand sig)
-    let steps_1_to_7_pass = report.steps[..7].iter()
+    let steps_1_to_7_pass = report.steps[..7]
+        .iter()
         .all(|s| matches!(s.status, StepStatus::Pass));
     let vf_pass = run_verify_full(&bundle);
-    assert_eq!(steps_1_to_7_pass, vf_pass,
-        "drift detected: steps 1-7 all pass={steps_1_to_7_pass}, verify_full={vf_pass}");
+    assert_eq!(
+        steps_1_to_7_pass, vf_pass,
+        "drift detected: steps 1-7 all pass={steps_1_to_7_pass}, verify_full={vf_pass}"
+    );
 
     // Test drand-only
     let json2 = build_valid_bundle(&entries, None, 1);
     let bundle2 = ProofBundle::from_json(&json2).unwrap();
     let report2 = verify_bundle(&bundle2);
-    let steps_1_to_7_pass2 = report2.steps[..7].iter()
+    let steps_1_to_7_pass2 = report2.steps[..7]
+        .iter()
         .all(|s| matches!(s.status, StepStatus::Pass));
     let vf_pass2 = run_verify_full(&bundle2);
-    assert_eq!(steps_1_to_7_pass2, vf_pass2,
-        "drift detected (drand-only): steps={steps_1_to_7_pass2}, verify_full={vf_pass2}");
+    assert_eq!(
+        steps_1_to_7_pass2, vf_pass2,
+        "drift detected (drand-only): steps={steps_1_to_7_pass2}, verify_full={vf_pass2}"
+    );
 }
 
 #[test]
 fn drand_only_bundle_omits_weather() {
     let entries = vec![
-        Entry { id: "a".into(), weight: 1 },
-        Entry { id: "b".into(), weight: 1 },
+        Entry {
+            id: "a".into(),
+            weight: 1,
+        },
+        Entry {
+            id: "b".into(),
+            weight: 1,
+        },
     ];
     let json = build_valid_bundle(&entries, None, 1);
 
     // Verify the bundle JSON has no weather_value key in entropy
     let val: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(val["entropy"].get("weather_value").is_none(),
-        "drand-only bundle should not contain weather_value key");
+    assert!(
+        val["entropy"].get("weather_value").is_none(),
+        "drand-only bundle should not contain weather_value key"
+    );
 
     let bundle = ProofBundle::from_json(&json).unwrap();
     assert!(bundle.is_drand_only());
     let report = verify_bundle(&bundle);
     // Steps 1-7 should pass
     for step in &report.steps[..7] {
-        assert!(matches!(step.status, StepStatus::Pass),
-            "step {} was {:?}", step.name, step.status);
+        assert!(
+            matches!(step.status, StepStatus::Pass),
+            "step {} was {:?}",
+            step.name,
+            step.status
+        );
     }
 }

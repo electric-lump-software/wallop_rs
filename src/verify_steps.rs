@@ -1,7 +1,7 @@
 use crate::bundle::ProofBundle;
 use crate::protocol::crypto;
-use crate::{compute_seed, compute_seed_drand_only, draw, entry_hash, Entry};
 use crate::protocol::receipts::lock_receipt_hash;
+use crate::{Entry, compute_seed, compute_seed_drand_only, draw, entry_hash};
 
 #[derive(Debug, PartialEq)]
 pub enum StepStatus {
@@ -27,7 +27,10 @@ impl VerificationReport {
         self.steps
             .iter()
             .all(|s| matches!(s.status, StepStatus::Pass | StepStatus::Skip(_)))
-            && self.steps.iter().any(|s| matches!(s.status, StepStatus::Pass))
+            && self
+                .steps
+                .iter()
+                .any(|s| matches!(s.status, StepStatus::Pass))
     }
 
     pub fn error_count(&self) -> usize {
@@ -42,17 +45,24 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
     let mut steps = Vec::new();
 
     // Decode keys for key_id display
-    let op_pk = hex::decode(&bundle.lock_receipt.public_key_hex).ok()
+    let op_pk = hex::decode(&bundle.lock_receipt.public_key_hex)
+        .ok()
         .and_then(|b| <[u8; 32]>::try_from(b).ok());
-    let infra_pk = hex::decode(&bundle.execution_receipt.public_key_hex).ok()
+    let infra_pk = hex::decode(&bundle.execution_receipt.public_key_hex)
+        .ok()
         .and_then(|b| <[u8; 32]>::try_from(b).ok());
 
     let operator_key_id = op_pk.as_ref().map(crypto::key_id);
     let infra_key_id = infra_pk.as_ref().map(crypto::key_id);
 
     // Convert bundle entries to fair_pick Entry type
-    let entries: Vec<Entry> = bundle.entries.iter()
-        .map(|e| Entry { id: e.id.clone(), weight: e.weight })
+    let entries: Vec<Entry> = bundle
+        .entries
+        .iter()
+        .map(|e| Entry {
+            id: e.id.clone(),
+            weight: e.weight,
+        })
         .collect();
 
     // === Step 1: Entry hash ===
@@ -63,33 +73,39 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
     });
 
     // === Step 2: Lock receipt signature ===
-    let lock_sig = hex::decode(&bundle.lock_receipt.signature_hex).ok()
+    let lock_sig = hex::decode(&bundle.lock_receipt.signature_hex)
+        .ok()
         .and_then(|b| <[u8; 64]>::try_from(b).ok());
     let step2_pass = match (&lock_sig, &op_pk) {
-        (Some(sig), Some(pk)) => crypto::verify_receipt(
-            bundle.lock_receipt.payload_jcs.as_bytes(), sig, pk
-        ),
+        (Some(sig), Some(pk)) => {
+            crypto::verify_receipt(bundle.lock_receipt.payload_jcs.as_bytes(), sig, pk)
+        }
         _ => false,
     };
     steps.push(StepResult {
         name: "Lock receipt signature",
-        status: if step2_pass { StepStatus::Pass } else {
+        status: if step2_pass {
+            StepStatus::Pass
+        } else {
             StepStatus::Fail("Ed25519 signature invalid".into())
         },
     });
 
     // === Step 3: Exec receipt signature ===
-    let exec_sig = hex::decode(&bundle.execution_receipt.signature_hex).ok()
+    let exec_sig = hex::decode(&bundle.execution_receipt.signature_hex)
+        .ok()
         .and_then(|b| <[u8; 64]>::try_from(b).ok());
     let step3_pass = match (&exec_sig, &infra_pk) {
-        (Some(sig), Some(pk)) => crypto::verify_receipt(
-            bundle.execution_receipt.payload_jcs.as_bytes(), sig, pk
-        ),
+        (Some(sig), Some(pk)) => {
+            crypto::verify_receipt(bundle.execution_receipt.payload_jcs.as_bytes(), sig, pk)
+        }
         _ => false,
     };
     steps.push(StepResult {
         name: "Exec receipt signature",
-        status: if step3_pass { StepStatus::Pass } else {
+        status: if step3_pass {
+            StepStatus::Pass
+        } else {
             StepStatus::Fail("Ed25519 signature invalid".into())
         },
     });
@@ -102,14 +118,18 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
         });
     } else {
         let computed_lrh = lock_receipt_hash(&bundle.lock_receipt.payload_jcs);
-        let exec_parsed: serde_json::Value = serde_json::from_str(&bundle.execution_receipt.payload_jcs)
-            .unwrap_or_default();
-        let exec_lrh = exec_parsed.get("lock_receipt_hash")
-            .and_then(|v| v.as_str()).unwrap_or("");
+        let exec_parsed: serde_json::Value =
+            serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap_or_default();
+        let exec_lrh = exec_parsed
+            .get("lock_receipt_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let step4_pass = computed_lrh == exec_lrh;
         steps.push(StepResult {
             name: "Receipt linkage",
-            status: if step4_pass { StepStatus::Pass } else {
+            status: if step4_pass {
+                StepStatus::Pass
+            } else {
                 StepStatus::Fail(format!("expected {}, got {}", computed_lrh, exec_lrh))
             },
         });
@@ -122,13 +142,18 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
             status: StepStatus::Skip("lock signature failed".into()),
         });
     } else {
-        let lock_parsed: serde_json::Value = serde_json::from_str(&bundle.lock_receipt.payload_jcs)
-            .unwrap_or_default();
-        let lock_eh = lock_parsed.get("entry_hash").and_then(|v| v.as_str()).unwrap_or("");
+        let lock_parsed: serde_json::Value =
+            serde_json::from_str(&bundle.lock_receipt.payload_jcs).unwrap_or_default();
+        let lock_eh = lock_parsed
+            .get("entry_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let step5a_pass = computed_entry_hash == lock_eh;
         steps.push(StepResult {
             name: "Entry hash (lock receipt)",
-            status: if step5a_pass { StepStatus::Pass } else {
+            status: if step5a_pass {
+                StepStatus::Pass
+            } else {
                 StepStatus::Fail(format!("expected {}, got {}", computed_entry_hash, lock_eh))
             },
         });
@@ -141,13 +166,18 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
             status: StepStatus::Skip("exec signature failed".into()),
         });
     } else {
-        let exec_parsed: serde_json::Value = serde_json::from_str(&bundle.execution_receipt.payload_jcs)
-            .unwrap_or_default();
-        let exec_eh = exec_parsed.get("entry_hash").and_then(|v| v.as_str()).unwrap_or("");
+        let exec_parsed: serde_json::Value =
+            serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap_or_default();
+        let exec_eh = exec_parsed
+            .get("entry_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
         let step5b_pass = computed_entry_hash == exec_eh;
         steps.push(StepResult {
             name: "Entry hash (exec receipt)",
-            status: if step5b_pass { StepStatus::Pass } else {
+            status: if step5b_pass {
+                StepStatus::Pass
+            } else {
                 StepStatus::Fail(format!("expected {}, got {}", computed_entry_hash, exec_eh))
             },
         });
@@ -155,11 +185,17 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
 
     // === Step 6: Seed recomputation ===
     // IMPORTANT: detect drand-only from exec receipt weather_value (not bundle entropy)
-    let exec_parsed: serde_json::Value = serde_json::from_str(&bundle.execution_receipt.payload_jcs)
-        .unwrap_or_default();
+    let exec_parsed: serde_json::Value =
+        serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap_or_default();
     let exec_weather = exec_parsed.get("weather_value").and_then(|v| v.as_str());
-    let exec_seed = exec_parsed.get("seed").and_then(|v| v.as_str()).unwrap_or("");
-    let exec_drand = exec_parsed.get("drand_randomness").and_then(|v| v.as_str()).unwrap_or("");
+    let exec_seed = exec_parsed
+        .get("seed")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let exec_drand = exec_parsed
+        .get("drand_randomness")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
 
     let step6_pass;
     if !step3_pass {
@@ -175,11 +211,19 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
         };
         let computed_seed_hex = hex::encode(computed_seed);
         step6_pass = computed_seed_hex == exec_seed;
-        let mode = if exec_weather.is_some() { "drand + weather" } else { "drand only" };
+        let mode = if exec_weather.is_some() {
+            "drand + weather"
+        } else {
+            "drand only"
+        };
         steps.push(StepResult {
             name: "Seed recomputation",
-            status: if step6_pass { StepStatus::Pass } else {
-                StepStatus::Fail(format!("({mode}) expected {exec_seed}, got {computed_seed_hex}"))
+            status: if step6_pass {
+                StepStatus::Pass
+            } else {
+                StepStatus::Fail(format!(
+                    "({mode}) expected {exec_seed}, got {computed_seed_hex}"
+                ))
             },
         });
     }
@@ -192,9 +236,10 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
         });
     } else {
         // Extract winner_count from lock receipt
-        let lock_parsed: serde_json::Value = serde_json::from_str(&bundle.lock_receipt.payload_jcs)
-            .unwrap_or_default();
-        let winner_count = lock_parsed.get("winner_count")
+        let lock_parsed: serde_json::Value =
+            serde_json::from_str(&bundle.lock_receipt.payload_jcs).unwrap_or_default();
+        let winner_count = lock_parsed
+            .get("winner_count")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
 
@@ -206,13 +251,14 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
         match draw(&entries, &computed_seed, winner_count) {
             Ok(computed_winners) => {
                 // Compare against exec receipt results (the SIGNED source of truth, not bundle results)
-                let exec_results = exec_parsed.get("results")
-                    .and_then(|v| v.as_array());
+                let exec_results = exec_parsed.get("results").and_then(|v| v.as_array());
                 let receipt_ids: Vec<&str> = exec_results
                     .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
                     .unwrap_or_default();
-                let computed_ids: Vec<&str> = computed_winners.iter()
-                    .map(|w| w.entry_id.as_str()).collect();
+                let computed_ids: Vec<&str> = computed_winners
+                    .iter()
+                    .map(|w| w.entry_id.as_str())
+                    .collect();
 
                 if computed_ids == receipt_ids {
                     steps.push(StepResult {
@@ -223,7 +269,8 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
                     steps.push(StepResult {
                         name: "Winner selection",
                         status: StepStatus::Fail(format!(
-                            "computed {:?}, receipt has {:?}", computed_ids, receipt_ids
+                            "computed {:?}, receipt has {:?}",
+                            computed_ids, receipt_ids
                         )),
                     });
                 }
@@ -274,10 +321,10 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ed25519_dalek::{Signer, SigningKey};
     use crate::bundle::ProofBundle;
     use crate::protocol::receipts::lock_receipt_hash as compute_lock_hash;
     use crate::{Entry, compute_seed, draw, entry_hash};
+    use ed25519_dalek::{Signer, SigningKey};
 
     fn test_signing_key() -> SigningKey {
         let secret_bytes: [u8; 32] =
@@ -294,9 +341,18 @@ mod tests {
         let pk_hex = hex::encode(sk.verifying_key().to_bytes());
 
         let entries = vec![
-            Entry { id: "ticket-47".into(), weight: 1 },
-            Entry { id: "ticket-48".into(), weight: 1 },
-            Entry { id: "ticket-49".into(), weight: 1 },
+            Entry {
+                id: "ticket-47".into(),
+                weight: 1,
+            },
+            Entry {
+                id: "ticket-48".into(),
+                weight: 1,
+            },
+            Entry {
+                id: "ticket-49".into(),
+                weight: 1,
+            },
         ];
 
         let (ehash, _) = entry_hash(&entries);
@@ -325,7 +381,8 @@ mod tests {
             "weather_station": "middle-wallop",
             "weather_time": "2026-04-09T12:10:00.000000Z",
             "winner_count": 2
-        }).to_string();
+        })
+        .to_string();
         let lock_sig = sk.sign(lock_jcs.as_bytes());
         let lock_sig_hex = hex::encode(lock_sig.to_bytes());
 
@@ -394,12 +451,21 @@ mod tests {
         let report = verify_bundle(&bundle);
         // Steps 1-7 should all be Pass
         for step in &report.steps[..7] {
-            assert!(matches!(step.status, StepStatus::Pass), "step {} was {:?}", step.name, step.status);
+            assert!(
+                matches!(step.status, StepStatus::Pass),
+                "step {} was {:?}",
+                step.name,
+                step.status
+            );
         }
         // Without cli feature, step 8 is a skip and the report passes overall.
         // With cli feature, step 8 runs real BLS (the test bundle uses a fake signature so it fails).
         #[cfg(not(feature = "cli"))]
-        assert!(report.passed(), "expected all pass (no cli), got: {:?}", report.steps);
+        assert!(
+            report.passed(),
+            "expected all pass (no cli), got: {:?}",
+            report.steps
+        );
     }
 
     #[test]
@@ -450,7 +516,8 @@ mod tests {
         let (json, _) = valid_signed_bundle();
         let bundle = ProofBundle::from_json(&json).unwrap();
         // Tamper with the exec receipt's seed field (re-sign so sig passes)
-        let mut exec_val: serde_json::Value = serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap();
+        let mut exec_val: serde_json::Value =
+            serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap();
         exec_val["seed"] = serde_json::json!("ff".repeat(32));
         let new_exec_jcs = exec_val.to_string();
         let new_exec_sig = hex::encode(sk.sign(new_exec_jcs.as_bytes()).to_bytes());
@@ -461,8 +528,14 @@ mod tests {
         let bundle2 = ProofBundle::from_json(&val.to_string()).unwrap();
         let report = verify_bundle(&bundle2);
         assert!(!report.passed());
-        assert!(matches!(report.steps[6].status, StepStatus::Fail(_)), "seed should fail");
-        assert!(matches!(report.steps[7].status, StepStatus::Skip(_)), "winners should skip");
+        assert!(
+            matches!(report.steps[6].status, StepStatus::Fail(_)),
+            "seed should fail"
+        );
+        assert!(
+            matches!(report.steps[7].status, StepStatus::Skip(_)),
+            "winners should skip"
+        );
     }
 
     #[test]
@@ -472,7 +545,8 @@ mod tests {
 
         let (json, _) = valid_signed_bundle();
         let bundle = ProofBundle::from_json(&json).unwrap();
-        let mut exec_val: serde_json::Value = serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap();
+        let mut exec_val: serde_json::Value =
+            serde_json::from_str(&bundle.execution_receipt.payload_jcs).unwrap();
         let results = exec_val["results"].as_array().unwrap().clone();
         let reversed: Vec<serde_json::Value> = results.into_iter().rev().collect();
         exec_val["results"] = serde_json::json!(reversed);
@@ -485,7 +559,10 @@ mod tests {
         let bundle2 = ProofBundle::from_json(&val.to_string()).unwrap();
         let report = verify_bundle(&bundle2);
         assert!(!report.passed());
-        assert!(matches!(report.steps[7].status, StepStatus::Fail(_)), "winners should fail");
+        assert!(
+            matches!(report.steps[7].status, StepStatus::Fail(_)),
+            "winners should fail"
+        );
     }
 
     #[test]
@@ -574,8 +651,15 @@ mod tests {
         val["entropy"]["drand_chain_hash"] = serde_json::json!("00".repeat(32));
         let bundle = ProofBundle::from_json(&val.to_string()).unwrap();
         let report = verify_bundle(&bundle);
-        let bls_step = report.steps.iter().find(|s| s.name == "Drand BLS signature").unwrap();
-        assert!(matches!(bls_step.status, StepStatus::Fail(_)),
-            "BLS step should fail for unknown chain, got {:?}", bls_step.status);
+        let bls_step = report
+            .steps
+            .iter()
+            .find(|s| s.name == "Drand BLS signature")
+            .unwrap();
+        assert!(
+            matches!(bls_step.status, StepStatus::Fail(_)),
+            "BLS step should fail for unknown chain, got {:?}",
+            bls_step.status
+        );
     }
 }

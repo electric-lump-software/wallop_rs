@@ -3,10 +3,14 @@ use std::io::Read;
 use std::process::ExitCode;
 
 use wallop_rs::bundle::ProofBundle;
-use wallop_rs::verify_steps::{verify_bundle, StepStatus};
+use wallop_rs::verify_steps::{StepStatus, verify_bundle};
 
 #[derive(Parser)]
-#[command(name = "wallop-verify", version, about = "Verify a Wallop proof bundle")]
+#[command(
+    name = "wallop-verify",
+    version,
+    about = "Verify a Wallop proof bundle"
+)]
 struct Cli {
     /// Path to proof bundle JSON file, or "-" for stdin
     path: String,
@@ -87,32 +91,45 @@ fn main() -> ExitCode {
 }
 
 fn run_verify_full_check(bundle: &ProofBundle) -> bool {
-    let entries: Vec<wallop_rs::Entry> = bundle.entries.iter()
-        .map(|e| wallop_rs::Entry { id: e.id.clone(), weight: e.weight })
+    let entries: Vec<wallop_rs::Entry> = bundle
+        .entries
+        .iter()
+        .map(|e| wallop_rs::Entry {
+            id: e.id.clone(),
+            weight: e.weight,
+        })
         .collect();
 
     let lock_sig = match hex::decode(&bundle.lock_receipt.signature_hex)
-        .ok().and_then(|b| <[u8; 64]>::try_from(b).ok()) {
+        .ok()
+        .and_then(|b| <[u8; 64]>::try_from(b).ok())
+    {
         Some(s) => s,
         None => return false,
     };
     let op_pk = match hex::decode(&bundle.lock_receipt.public_key_hex)
-        .ok().and_then(|b| <[u8; 32]>::try_from(b).ok()) {
+        .ok()
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+    {
         Some(k) => k,
         None => return false,
     };
     let exec_sig = match hex::decode(&bundle.execution_receipt.signature_hex)
-        .ok().and_then(|b| <[u8; 64]>::try_from(b).ok()) {
+        .ok()
+        .and_then(|b| <[u8; 64]>::try_from(b).ok())
+    {
         Some(s) => s,
         None => return false,
     };
     let infra_pk = match hex::decode(&bundle.execution_receipt.public_key_hex)
-        .ok().and_then(|b| <[u8; 32]>::try_from(b).ok()) {
+        .ok()
+        .and_then(|b| <[u8; 32]>::try_from(b).ok())
+    {
         Some(k) => k,
         None => return false,
     };
 
-    match wallop_rs::verify_full(
+    wallop_rs::verify_full(
         &bundle.lock_receipt.payload_jcs,
         &lock_sig,
         &op_pk,
@@ -120,8 +137,6 @@ fn run_verify_full_check(bundle: &ProofBundle) -> bool {
         &exec_sig,
         &infra_pk,
         &entries,
-    ) {
-        Ok(result) => result,
-        Err(_) => false,
-    }
+    )
+    .unwrap_or_default()
 }

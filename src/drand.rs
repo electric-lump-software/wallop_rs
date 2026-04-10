@@ -4,8 +4,7 @@ use sha2::{Digest, Sha256};
 pub const QUICKNET_CHAIN_HASH: &str =
     "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971";
 
-pub const QUICKNET_PUBLIC_KEY_HEX: &str =
-    "83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c\
+pub const QUICKNET_PUBLIC_KEY_HEX: &str = "83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c\
      8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb\
      5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a";
 
@@ -43,10 +42,9 @@ pub fn verify_drand_round(
     }
 
     // Step 2: Decode inputs
-    let pk_bytes = hex::decode(QUICKNET_PUBLIC_KEY_HEX)
-        .map_err(|e| DrandError::HexDecode(e.to_string()))?;
-    let sig_bytes =
-        hex::decode(signature_hex).map_err(|e| DrandError::HexDecode(e.to_string()))?;
+    let pk_bytes =
+        hex::decode(QUICKNET_PUBLIC_KEY_HEX).map_err(|e| DrandError::HexDecode(e.to_string()))?;
+    let sig_bytes = hex::decode(signature_hex).map_err(|e| DrandError::HexDecode(e.to_string()))?;
 
     // Step 3: BLS verification using drand-verify
     // Quicknet uses scheme "bls-unchained-g1-rfc9380":
@@ -93,12 +91,7 @@ mod tests {
 
     #[test]
     fn rejects_corrupted_signature() {
-        let result = verify_drand_round(
-            QUICKNET_CHAIN_HASH,
-            1,
-            &"ff".repeat(48),
-            &"00".repeat(32),
-        );
+        let result = verify_drand_round(QUICKNET_CHAIN_HASH, 1, &"ff".repeat(48), &"00".repeat(32));
         assert!(matches!(result, Err(DrandError::InvalidSignature)));
     }
 }

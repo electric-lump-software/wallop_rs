@@ -36,7 +36,10 @@ pub struct Entropy {
 pub struct ReceiptBlock {
     pub payload_jcs: String,
     pub signature_hex: String,
-    #[serde(alias = "operator_public_key_hex", alias = "infrastructure_public_key_hex")]
+    #[serde(
+        alias = "operator_public_key_hex",
+        alias = "infrastructure_public_key_hex"
+    )]
     pub public_key_hex: String,
 }
 
@@ -92,7 +95,10 @@ mod tests {
     #[test]
     fn parses_drand_only_bundle() {
         let mut val: serde_json::Value = serde_json::from_str(&minimal_bundle_json()).unwrap();
-        val["entropy"].as_object_mut().unwrap().remove("weather_value");
+        val["entropy"]
+            .as_object_mut()
+            .unwrap()
+            .remove("weather_value");
         let bundle = ProofBundle::from_json(&val.to_string()).unwrap();
         assert!(bundle.is_drand_only());
     }
@@ -107,7 +113,13 @@ mod tests {
     fn parses_operator_key_field() {
         let json = minimal_bundle_json();
         let bundle = ProofBundle::from_json(&json).unwrap();
-        assert_eq!(bundle.lock_receipt.public_key_hex, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        assert_eq!(bundle.execution_receipt.public_key_hex, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+        assert_eq!(
+            bundle.lock_receipt.public_key_hex,
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        );
+        assert_eq!(
+            bundle.execution_receipt.public_key_hex,
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        );
     }
 }
