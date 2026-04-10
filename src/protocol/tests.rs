@@ -4,6 +4,7 @@ const ENTRY_HASH_VECTORS: &str = include_str!("../../vendor/wallop/spec/vectors/
 const COMPUTE_SEED_VECTORS: &str =
     include_str!("../../vendor/wallop/spec/vectors/compute-seed.json");
 const END_TO_END_VECTOR: &str = include_str!("../../vendor/wallop/spec/vectors/end-to-end.json");
+const FAIR_PICK_VECTORS: &str = include_str!("../../vendor/wallop/spec/vectors/fair-pick.json");
 
 fn entries_from_json(arr: &[serde_json::Value]) -> Vec<Entry> {
     arr.iter()
@@ -171,6 +172,52 @@ fn end_to_end_pipeline() {
         .collect();
     let actual_winners: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
     assert_eq!(actual_winners, expected_winners);
+}
+
+// --- large-pool fair-pick vectors (from fair-pick.json) ---
+
+#[test]
+fn fair_pick_large_pool_500_mixed_weights() {
+    let vectors: serde_json::Value = serde_json::from_str(FAIR_PICK_VECTORS).unwrap();
+    let v = &vectors["vectors"][4];
+
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
+    let seed_hex = v["seed_hex"].as_str().unwrap();
+    let seed: [u8; 32] = hex::decode(seed_hex).unwrap().try_into().unwrap();
+    let count = v["winner_count"].as_u64().unwrap() as u32;
+
+    let result = fair_pick_rs::draw(&entries, &seed, count).unwrap();
+    let actual: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
+    let expected: Vec<&str> = v["expected_winners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn fair_pick_large_pool_1000_ten_winners() {
+    let vectors: serde_json::Value = serde_json::from_str(FAIR_PICK_VECTORS).unwrap();
+    let v = &vectors["vectors"][5];
+
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
+    let seed_hex = v["seed_hex"].as_str().unwrap();
+    let seed: [u8; 32] = hex::decode(seed_hex).unwrap().try_into().unwrap();
+    let count = v["winner_count"].as_u64().unwrap() as u32;
+
+    let result = fair_pick_rs::draw(&entries, &seed, count).unwrap();
+    let actual: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
+    let expected: Vec<&str> = v["expected_winners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+
+    assert_eq!(actual, expected);
 }
 
 // --- escaping (behavioral, no vector) ---
