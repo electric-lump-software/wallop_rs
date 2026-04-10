@@ -4,12 +4,15 @@ version = "0.3.0"
 edition = "2024"
 description = "Protocol functions and WASM verifier for the Wallop provably fair draw system."
 license = "MIT"
+repository = "https://github.com/electric-lump-software/wallop_rs"
+documentation = "https://docs.rs/wallop_rs"
+homepage = "https://wallop.run"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-fair_pick_rs = { git = "https://github.com/electric-lump-software/fair_pick_rs.git", branch = "main" }
+fair_pick_rs = { version = "0.1", git = "https://github.com/electric-lump-software/fair_pick_rs.git", branch = "main" }
 sha2 = "0.10"
 hex = "0.4"
 ed25519-dalek = { version = "2", default-features = false }

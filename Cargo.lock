@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "wallop_rs"
-version = "0.1.1"
+version = "0.3.0"
 dependencies = [
  "ed25519-dalek",
  "fair_pick_rs",
