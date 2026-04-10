@@ -237,11 +237,32 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
         }
     }
 
-    // === Step 8: BLS drand verification (placeholder — implemented in Task 5/6) ===
-    steps.push(StepResult {
-        name: "Drand BLS signature",
-        status: StepStatus::Skip("BLS verification not yet implemented".into()),
-    });
+    // === Step 8: BLS drand verification ===
+    #[cfg(feature = "cli")]
+    {
+        match crate::drand::verify_drand_round(
+            &bundle.entropy.drand_chain_hash,
+            bundle.entropy.drand_round,
+            &bundle.entropy.drand_signature,
+            &bundle.entropy.drand_randomness,
+        ) {
+            Ok(()) => steps.push(StepResult {
+                name: "Drand BLS signature",
+                status: StepStatus::Pass,
+            }),
+            Err(e) => steps.push(StepResult {
+                name: "Drand BLS signature",
+                status: StepStatus::Fail(e.to_string()),
+            }),
+        }
+    }
+    #[cfg(not(feature = "cli"))]
+    {
+        steps.push(StepResult {
+            name: "Drand BLS signature",
+            status: StepStatus::Skip("BLS verification requires cli feature".into()),
+        });
+    }
 
     VerificationReport {
         steps,
@@ -371,11 +392,14 @@ mod tests {
         let (json, _) = valid_signed_bundle();
         let bundle = ProofBundle::from_json(&json).unwrap();
         let report = verify_bundle(&bundle);
-        assert!(report.passed(), "expected all pass, got: {:?}", report.steps);
-        // Steps 1-7 should all be Pass (step 8 BLS is placeholder skip)
+        // Steps 1-7 should all be Pass
         for step in &report.steps[..7] {
             assert!(matches!(step.status, StepStatus::Pass), "step {} was {:?}", step.name, step.status);
         }
+        // Without cli feature, step 8 is a skip and the report passes overall.
+        // With cli feature, step 8 runs real BLS (the test bundle uses a fake signature so it fails).
+        #[cfg(not(feature = "cli"))]
+        assert!(report.passed(), "expected all pass (no cli), got: {:?}", report.steps);
     }
 
     #[test]
@@ -540,5 +564,18 @@ mod tests {
             infra_key_id: None,
         };
         assert!(!report.passed());
+    }
+
+    #[cfg(feature = "cli")]
+    #[test]
+    fn verify_bundle_bad_drand_chain() {
+        let (json, _) = valid_signed_bundle();
+        let mut val: serde_json::Value = serde_json::from_str(&json).unwrap();
+        val["entropy"]["drand_chain_hash"] = serde_json::json!("00".repeat(32));
+        let bundle = ProofBundle::from_json(&val.to_string()).unwrap();
+        let report = verify_bundle(&bundle);
+        let bls_step = report.steps.iter().find(|s| s.name == "Drand BLS signature").unwrap();
+        assert!(matches!(bls_step.status, StepStatus::Fail(_)),
+            "BLS step should fail for unknown chain, got {:?}", bls_step.status);
     }
 }
