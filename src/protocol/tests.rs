@@ -4,6 +4,7 @@ const ENTRY_HASH_VECTORS: &str = include_str!("../../vendor/wallop/spec/vectors/
 const COMPUTE_SEED_VECTORS: &str =
     include_str!("../../vendor/wallop/spec/vectors/compute-seed.json");
 const END_TO_END_VECTOR: &str = include_str!("../../vendor/wallop/spec/vectors/end-to-end.json");
+const FAIR_PICK_VECTORS: &str = include_str!("../../vendor/wallop/spec/vectors/fair-pick.json");
 
 fn entries_from_json(arr: &[serde_json::Value]) -> Vec<Entry> {
     arr.iter()
@@ -171,6 +172,78 @@ fn end_to_end_pipeline() {
         .collect();
     let actual_winners: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
     assert_eq!(actual_winners, expected_winners);
+}
+
+// --- vector supply-chain integrity: seed_note → seed_hex cross-check ---
+
+#[test]
+fn fair_pick_vectors_seed_note_matches_seed_hex() {
+    let vectors: serde_json::Value = serde_json::from_str(FAIR_PICK_VECTORS).unwrap();
+
+    for v in vectors["vectors"].as_array().unwrap() {
+        let name = v["name"].as_str().unwrap();
+        if let Some(note) = v.get("seed_note").and_then(|n| n.as_str()) {
+            // seed_note is SHA-256("inner-string") — extract and hash the inner string
+            let inner = note
+                .strip_prefix("SHA-256(\"")
+                .and_then(|s| s.strip_suffix("\")"))
+                .unwrap_or_else(|| panic!("malformed seed_note in vector '{name}': {note}"));
+
+            let computed = hex::encode(Sha256::digest(inner.as_bytes()));
+            let expected = v["seed_hex"].as_str().unwrap();
+
+            assert_eq!(
+                computed, expected,
+                "seed_note cross-check failed for vector '{name}'"
+            );
+        }
+    }
+}
+
+// --- large-pool fair-pick vectors (from fair-pick.json) ---
+
+#[test]
+fn fair_pick_large_pool_500_mixed_weights() {
+    let vectors: serde_json::Value = serde_json::from_str(FAIR_PICK_VECTORS).unwrap();
+    let v = &vectors["vectors"][4];
+
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
+    let seed_hex = v["seed_hex"].as_str().unwrap();
+    let seed: [u8; 32] = hex::decode(seed_hex).unwrap().try_into().unwrap();
+    let count = v["winner_count"].as_u64().unwrap() as u32;
+
+    let result = fair_pick_rs::draw(&entries, &seed, count).unwrap();
+    let actual: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
+    let expected: Vec<&str> = v["expected_winners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn fair_pick_large_pool_1000_ten_winners() {
+    let vectors: serde_json::Value = serde_json::from_str(FAIR_PICK_VECTORS).unwrap();
+    let v = &vectors["vectors"][5];
+
+    let entries = entries_from_json(v["entries"].as_array().unwrap());
+    let seed_hex = v["seed_hex"].as_str().unwrap();
+    let seed: [u8; 32] = hex::decode(seed_hex).unwrap().try_into().unwrap();
+    let count = v["winner_count"].as_u64().unwrap() as u32;
+
+    let result = fair_pick_rs::draw(&entries, &seed, count).unwrap();
+    let actual: Vec<&str> = result.iter().map(|w| w.entry_id.as_str()).collect();
+    let expected: Vec<&str> = v["expected_winners"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+
+    assert_eq!(actual, expected);
 }
 
 // --- escaping (behavioral, no vector) ---
