@@ -144,68 +144,73 @@ pub fn verify(
 mod tests {
     use super::*;
 
+    const END_TO_END_VECTOR: &str = include_str!("../vendor/wallop/spec/vectors/end-to-end.json");
+
+    fn entries_from_json(arr: &[serde_json::Value]) -> Vec<Entry> {
+        arr.iter()
+            .map(|e| Entry {
+                id: e["id"].as_str().unwrap().into(),
+                weight: e["weight"].as_u64().unwrap() as u32,
+            })
+            .collect()
+    }
+
     #[test]
     fn verify_returns_true_for_matching_results() {
-        let entries = vec![
-            Entry {
-                id: "ticket-47".into(),
-                weight: 1,
-            },
-            Entry {
-                id: "ticket-48".into(),
-                weight: 1,
-            },
-            Entry {
-                id: "ticket-49".into(),
-                weight: 1,
-            },
-        ];
-        let drand = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-        let weather = "1013";
-        let expected = vec![
-            Winner {
-                position: 1,
-                entry_id: "ticket-48".into(),
-            },
-            Winner {
-                position: 2,
-                entry_id: "ticket-47".into(),
-            },
-        ];
+        let vector: serde_json::Value = serde_json::from_str(END_TO_END_VECTOR).unwrap();
+        let input = &vector["input"];
+        let expected = &vector["expected"];
 
-        assert!(verify(&entries, drand, Some(weather), 2, &expected));
+        let entries = entries_from_json(input["entries"].as_array().unwrap());
+        let drand = input["drand_randomness"].as_str().unwrap();
+        let weather = input["weather_value"].as_str().unwrap();
+        let count = input["winner_count"].as_u64().unwrap() as u32;
+
+        let expected_winners: Vec<Winner> = expected["winners"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, v)| Winner {
+                position: (i + 1) as u32,
+                entry_id: v.as_str().unwrap().into(),
+            })
+            .collect();
+
+        assert!(verify(
+            &entries,
+            drand,
+            Some(weather),
+            count,
+            &expected_winners
+        ));
     }
 
     #[test]
     fn verify_returns_false_for_wrong_results() {
-        let entries = vec![
-            Entry {
-                id: "ticket-47".into(),
-                weight: 1,
-            },
-            Entry {
-                id: "ticket-48".into(),
-                weight: 1,
-            },
-            Entry {
-                id: "ticket-49".into(),
-                weight: 1,
-            },
-        ];
-        let drand = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
-        let weather = "1013";
-        let wrong = vec![
-            Winner {
-                position: 1,
-                entry_id: "ticket-47".into(),
-            },
-            Winner {
-                position: 2,
-                entry_id: "ticket-48".into(),
-            },
-        ];
+        let vector: serde_json::Value = serde_json::from_str(END_TO_END_VECTOR).unwrap();
+        let input = &vector["input"];
+        let expected = &vector["expected"];
 
-        assert!(!verify(&entries, drand, Some(weather), 2, &wrong));
+        let entries = entries_from_json(input["entries"].as_array().unwrap());
+        let drand = input["drand_randomness"].as_str().unwrap();
+        let weather = input["weather_value"].as_str().unwrap();
+        let count = input["winner_count"].as_u64().unwrap() as u32;
+
+        // Reverse the expected winners to create wrong results
+        let mut wrong: Vec<Winner> = expected["winners"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .enumerate()
+            .map(|(i, v)| Winner {
+                position: (i + 1) as u32,
+                entry_id: v.as_str().unwrap().into(),
+            })
+            .collect();
+        wrong.reverse();
+
+        assert!(!verify(&entries, drand, Some(weather), count, &wrong));
     }
 
     #[test]
