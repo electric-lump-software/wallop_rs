@@ -53,7 +53,9 @@ pub fn verify_full(
     let count = lock_parsed
         .get("winner_count")
         .and_then(|v| v.as_u64())
-        .ok_or("missing or invalid winner_count in lock receipt")? as u32;
+        .ok_or("missing or invalid winner_count in lock receipt")?;
+    let count =
+        u32::try_from(count).map_err(|_| format!("winner_count {} exceeds u32::MAX", count))?;
 
     // Step 4: Check lock_receipt_hash linkage
     let exec_parsed: serde_json::Value = serde_json::from_str(execution_receipt_jcs)
@@ -69,7 +71,7 @@ pub fn verify_full(
         return Ok(false);
     }
 
-    // Step 4: Extract fields from execution receipt
+    // Step 5: Extract fields from execution receipt
     let exec_entry_hash = exec_parsed
         .get("entry_hash")
         .and_then(|v| v.as_str())
@@ -98,13 +100,13 @@ pub fn verify_full(
         .map(|(i, v)| v.as_str().ok_or(format!("results[{}] is not a string", i)))
         .collect::<Result<Vec<&str>, String>>()?;
 
-    // Step 5: Verify entry_hash
+    // Step 6: Verify entry_hash
     let (computed_entry_hash, _) = entry_hash(entries);
     if computed_entry_hash != exec_entry_hash {
         return Ok(false);
     }
 
-    // Step 6: Recompute seed
+    // Step 7: Recompute seed
     let (computed_seed, _) = match weather_value {
         Some(w) => compute_seed(&computed_entry_hash, drand_randomness, w),
         None => compute_seed_drand_only(&computed_entry_hash, drand_randomness),
@@ -114,7 +116,7 @@ pub fn verify_full(
         return Ok(false);
     }
 
-    // Step 7: Recompute draw
+    // Step 8: Recompute draw
     let computed_results =
         draw(entries, &computed_seed, count).map_err(|e| format!("draw failed: {}", e))?;
 
