@@ -174,6 +174,32 @@ fn end_to_end_pipeline() {
     assert_eq!(actual_winners, expected_winners);
 }
 
+// --- vector supply-chain integrity: seed_note → seed_hex cross-check ---
+
+#[test]
+fn fair_pick_vectors_seed_note_matches_seed_hex() {
+    let vectors: serde_json::Value = serde_json::from_str(FAIR_PICK_VECTORS).unwrap();
+
+    for v in vectors["vectors"].as_array().unwrap() {
+        let name = v["name"].as_str().unwrap();
+        if let Some(note) = v.get("seed_note").and_then(|n| n.as_str()) {
+            // seed_note is SHA-256("inner-string") — extract and hash the inner string
+            let inner = note
+                .strip_prefix("SHA-256(\"")
+                .and_then(|s| s.strip_suffix("\")"))
+                .unwrap_or_else(|| panic!("malformed seed_note in vector '{name}': {note}"));
+
+            let computed = hex::encode(Sha256::digest(inner.as_bytes()));
+            let expected = v["seed_hex"].as_str().unwrap();
+
+            assert_eq!(
+                computed, expected,
+                "seed_note cross-check failed for vector '{name}'"
+            );
+        }
+    }
+}
+
 // --- large-pool fair-pick vectors (from fair-pick.json) ---
 
 #[test]
