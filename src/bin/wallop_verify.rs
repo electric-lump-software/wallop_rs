@@ -19,6 +19,27 @@ struct Cli {
 
     /// Path to proof bundle JSON file, or "-" for stdin
     path: Option<String>,
+
+    /// Pin the operator public key (64-char hex). If the bundle's embedded
+    /// operator key doesn't match, verification fails before any step runs.
+    #[arg(long, value_name = "HEX")]
+    pin_operator_key: Option<String>,
+
+    /// Pin the infrastructure signing key (64-char hex).
+    #[arg(long, value_name = "HEX")]
+    pin_infra_key: Option<String>,
+
+    /// Read the operator key pin from a file (one hex line).
+    #[arg(long, value_name = "PATH", conflicts_with = "pin_operator_key")]
+    pin_operator_key_file: Option<String>,
+
+    /// Extract the operator key from a previously trusted bundle (TOFU).
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["pin_operator_key", "pin_operator_key_file"]
+    )]
+    pin_from_bundle: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -30,9 +51,19 @@ enum Commands {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    match (cli.command, cli.path) {
+    match (cli.command, cli.path.as_deref()) {
         (Some(Commands::Selftest), _) => run_selftest(),
-        (None, Some(path)) => run_verify(&path),
+        (None, Some(path)) => {
+            let pins = PinConfig {
+                operator_key: resolve_operator_pin(
+                    cli.pin_operator_key.as_deref(),
+                    cli.pin_operator_key_file.as_deref(),
+                    cli.pin_from_bundle.as_deref(),
+                ),
+                infra_key: cli.pin_infra_key.clone(),
+            };
+            run_verify(path, &pins)
+        }
         (None, None) => {
             eprintln!("error: no proof bundle path provided");
             eprintln!("Usage: wallop-verify <PATH> or wallop-verify selftest");
@@ -117,9 +148,69 @@ fn run_selftest() -> ExitCode {
     }
 }
 
+// ==================== pin-key support ====================
+
+struct PinConfig {
+    operator_key: Option<String>,
+    infra_key: Option<String>,
+}
+
+fn resolve_operator_pin(
+    hex: Option<&str>,
+    file: Option<&str>,
+    trust_bundle: Option<&str>,
+) -> Option<String> {
+    if let Some(h) = hex {
+        return Some(h.to_string());
+    }
+    if let Some(path) = file {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => return Some(contents.trim().to_string()),
+            Err(e) => {
+                eprintln!("warning: failed to read pin file {path}: {e}");
+                return None;
+            }
+        }
+    }
+    if let Some(path) = trust_bundle {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => match ProofBundle::from_json(&contents) {
+                Ok(b) => return Some(b.lock_receipt.public_key_hex.clone()),
+                Err(e) => {
+                    eprintln!("warning: trust bundle is not valid: {e}");
+                    return None;
+                }
+            },
+            Err(e) => {
+                eprintln!("warning: failed to read trust bundle {path}: {e}");
+                return None;
+            }
+        }
+    }
+    None
+}
+
+fn compare_pin(embedded_key: &str, pin: &Option<String>, kind: &str) -> Result<(), String> {
+    match pin {
+        Some(pinned) if pinned.eq_ignore_ascii_case(embedded_key) => Ok(()),
+        Some(pinned) => Err(format!(
+            "KEY PIN MISMATCH ({kind})\n  Embedded key: {embedded_key}\n  Pinned key:   {pinned}\n\
+             This bundle was signed with a key you do not trust."
+        )),
+        None => {
+            eprintln!(
+                "warning: No --pin-{kind}-key supplied. Trusting embedded public key. If you"
+            );
+            eprintln!("  do not control the bundle source, obtain the operator's key out of band");
+            eprintln!("  and re-run with --pin-{kind}-key.");
+            Ok(())
+        }
+    }
+}
+
 // ==================== verify subcommand (default) ====================
 
-fn run_verify(path: &str) -> ExitCode {
+fn run_verify(path: &str, pins: &PinConfig) -> ExitCode {
     // Read input
     let json = match path {
         "-" => {
@@ -147,6 +238,24 @@ fn run_verify(path: &str) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+
+    // Check pin-key constraints before running verification
+    if let Err(e) = compare_pin(
+        &bundle.lock_receipt.public_key_hex,
+        &pins.operator_key,
+        "operator",
+    ) {
+        eprintln!("{e}");
+        return ExitCode::from(1);
+    }
+    if let Err(e) = compare_pin(
+        &bundle.execution_receipt.public_key_hex,
+        &pins.infra_key,
+        "infra",
+    ) {
+        eprintln!("{e}");
+        return ExitCode::from(1);
+    }
 
     // Run verification
     let report = verify_bundle(&bundle);
