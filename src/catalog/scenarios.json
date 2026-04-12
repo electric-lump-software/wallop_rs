@@ -1,0 +1,81 @@
+{
+  "catalog_schema_version": "1",
+  "protocol_version": "1",
+  "defaults": {
+    "entry_count": 3,
+    "weather": "1013",
+    "winner_count": 2
+  },
+  "test_keypairs": {
+    "attacker_a": { "seed": "attacker_a_v1" },
+    "attacker_b": { "seed": "attacker_b_v1" }
+  },
+  "fixture_bundles": {},
+  "scenarios": [
+    {
+      "name": "lock_signature_byte_flip",
+      "category": "lock_signature",
+      "description": "Flip a byte in the lock receipt Ed25519 signature. Must be caught by the lock signature verification step.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "byte_flip",
+        "path": "lock_receipt.signature_hex",
+        "offset": 0
+      },
+      "expected_catch_steps": ["lock_signature"]
+    },
+    {
+      "name": "exec_signature_byte_flip",
+      "category": "exec_signature",
+      "description": "Flip a byte in the execution receipt Ed25519 signature. Must be caught by the exec signature verification step.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "byte_flip",
+        "path": "execution_receipt.signature_hex",
+        "offset": 0
+      },
+      "expected_catch_steps": ["exec_signature"]
+    },
+    {
+      "name": "entry_weight_tamper",
+      "category": "entry_set",
+      "description": "Change the weight of the first entry. The recomputed entry hash will not match what was committed in the lock receipt.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "set_value",
+        "path": "entries[0].weight",
+        "value": 999
+      },
+      "expected_catch_steps": ["lock_receipt_entry_hash", "exec_receipt_entry_hash"]
+    },
+    {
+      "name": "entry_add_fake",
+      "category": "entry_set",
+      "description": "Add a fake entry to the bundle. The recomputed entry hash will differ from what the signed receipts committed to.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "add",
+        "path": "entries",
+        "value": { "id": "ticket-injected", "weight": 1 }
+      },
+      "expected_catch_steps": ["lock_receipt_entry_hash", "exec_receipt_entry_hash"]
+    },
+    {
+      "name": "drand_bls_signature_tamper",
+      "category": "entropy",
+      "description": "Flip a byte in the bundle-level drand_signature field. This does not break any receipt signature (they sign the payload JCS, not the entropy). All upstream steps pass; only the BLS verification step catches the invalid drand signature.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "byte_flip",
+        "path": "entropy.drand_signature",
+        "offset": 0
+      },
+      "expected_catch_steps": ["drand_bls_signature"]
+    }
+  ]
+}

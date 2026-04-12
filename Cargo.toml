@@ -1,6 +1,6 @@
 [package]
 name = "wallop_verifier"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 description = "Independent verifier for the Wallop! provably fair draw protocol."
 license = "MIT"
@@ -21,9 +21,21 @@ wasm-bindgen = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 serde_json = "1"
+drand-verify = { version = "0.6", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+
+[features]
+default = []
+cli = ["clap", "drand-verify"]
+
+[[bin]]
+name = "wallop-verify"
+path = "src/bin/wallop_verify.rs"
+required-features = ["cli"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3"
+ed25519-dalek = { version = "2", features = ["std"] }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
