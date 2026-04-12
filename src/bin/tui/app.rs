@@ -3,7 +3,9 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
@@ -48,28 +50,27 @@ fn run_interactive_loop(
     loop {
         terminal.draw(|frame| render::render(session, frame))?;
 
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key_event) = event::read()? {
-                if let Some(action) = map_key(key_event, session.view) {
-                    match action {
-                        Action::Quit => break,
-                        Action::Advance => {
-                            if session.all_revealed() {
-                                session.toggle_detail();
-                            } else {
-                                session.advance();
-                            }
-                        }
-                        Action::ContinueAll => session.continue_all(),
-                        Action::StepUp => session.move_step_up(),
-                        Action::StepDown => session.move_step_down(),
-                        Action::NextScenario => {
-                            session.next_scenario();
-                        }
-                        Action::PrevScenario => {
-                            session.prev_scenario();
-                        }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key_event) = event::read()?
+            && let Some(action) = map_key(key_event, session.view)
+        {
+            match action {
+                Action::Quit => break,
+                Action::Advance => {
+                    if session.all_revealed() {
+                        session.toggle_detail();
+                    } else {
+                        session.advance();
                     }
+                }
+                Action::ContinueAll => session.continue_all(),
+                Action::StepUp => session.move_step_up(),
+                Action::StepDown => session.move_step_down(),
+                Action::NextScenario => {
+                    session.next_scenario();
+                }
+                Action::PrevScenario => {
+                    session.prev_scenario();
                 }
             }
         }
@@ -117,9 +118,10 @@ fn run_demo_loop(
 
         // Mark current scenario result
         if scenario_idx < session.scenarios.len() {
-            let has_fail = session.steps.iter().any(|s| {
-                matches!(s.status, wallop_verifier::verify_steps::StepStatus::Fail(_))
-            });
+            let has_fail = session
+                .steps
+                .iter()
+                .any(|s| matches!(s.status, wallop_verifier::verify_steps::StepStatus::Fail(_)));
             session.scenarios[scenario_idx].passed = Some(!has_fail);
             if !has_fail {
                 session.scenarios_passed += 1;
@@ -135,15 +137,13 @@ fn run_demo_loop(
             // Hold on summary -- wait for quit
             loop {
                 terminal.draw(|frame| render::render(session, frame))?;
-                if event::poll(Duration::from_millis(100))? {
-                    if let Event::Key(key_event) = event::read()? {
-                        if key_event.code == KeyCode::Char('q')
-                            || (key_event.modifiers.contains(KeyModifiers::CONTROL)
-                                && key_event.code == KeyCode::Char('c'))
-                        {
-                            return Ok(());
-                        }
-                    }
+                if event::poll(Duration::from_millis(100))?
+                    && let Event::Key(key_event) = event::read()?
+                    && (key_event.code == KeyCode::Char('q')
+                        || (key_event.modifiers.contains(KeyModifiers::CONTROL)
+                            && key_event.code == KeyCode::Char('c')))
+                {
+                    return Ok(());
                 }
             }
         }
@@ -164,15 +164,13 @@ fn wait_or_quit(duration: Duration) -> io::Result<bool> {
     while Instant::now() < deadline {
         let remaining = deadline - Instant::now();
         let poll_time = remaining.min(Duration::from_millis(50));
-        if event::poll(poll_time)? {
-            if let Event::Key(key_event) = event::read()? {
-                if key_event.code == KeyCode::Char('q')
-                    || (key_event.modifiers.contains(KeyModifiers::CONTROL)
-                        && key_event.code == KeyCode::Char('c'))
-                {
-                    return Ok(true);
-                }
-            }
+        if event::poll(poll_time)?
+            && let Event::Key(key_event) = event::read()?
+            && (key_event.code == KeyCode::Char('q')
+                || (key_event.modifiers.contains(KeyModifiers::CONTROL)
+                    && key_event.code == KeyCode::Char('c')))
+        {
+            return Ok(true);
         }
     }
     Ok(false)

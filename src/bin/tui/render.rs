@@ -1,8 +1,8 @@
+use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
-use ratatui::Frame;
 
 use wallop_verifier::verify_steps::{StepDetail, StepStatus};
 
@@ -70,7 +70,9 @@ fn render_scenario_list(session: &VerificationSession, frame: &mut Frame, area: 
                 color
             };
             let text = format!("{marker}{prefix}{}", sc.name);
-            ListItem::new(Line::from(Span::from(text).style(Style::default().fg(row_color))))
+            ListItem::new(Line::from(
+                Span::from(text).style(Style::default().fg(row_color)),
+            ))
         })
         .collect();
 
@@ -134,15 +136,15 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
                 StepStatus::Skip(_) => ("SKIP", Color::DarkGray),
             };
 
-            // Calculate dots to fill between name and status
+            // Calculate dots to fill between name and status.
+            // Total line: gutter(3) + name + ' ' + dots + ' ' + status
             let available = inner.width as usize;
             let gutter_len = 3;
             let name_len = name_str.len();
             let status_len = status_label.len();
             let min_dots = 2;
-            let dots_count = available
-                .saturating_sub(gutter_len + name_len + 1 + status_len)
-                .max(min_dots);
+            let fixed_width = gutter_len + name_len + 2 + status_len; // 2 = spaces around dots
+            let dots_count = available.saturating_sub(fixed_width).max(min_dots);
             let dots: String = " ".to_string() + &".".repeat(dots_count) + " ";
 
             let bg = if is_selected {
@@ -152,13 +154,11 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
             };
 
             let line = Line::from(vec![
-                Span::from(gutter.to_string())
-                    .style(Style::default().fg(Color::White).bg(bg)),
+                Span::from(gutter.to_string()).style(Style::default().fg(Color::White).bg(bg)),
                 Span::from(name_str).style(Style::default().fg(Color::White).bg(bg)),
                 Span::from(dots).style(Style::default().fg(Color::DarkGray).bg(bg)),
-                Span::from(status_label.to_string()).style(
-                    Style::default().fg(status_color).bg(bg),
-                ),
+                Span::from(status_label.to_string())
+                    .style(Style::default().fg(status_color).bg(bg)),
             ]);
             lines.push(line);
 
@@ -188,13 +188,10 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
         } else {
             Color::Red
         };
-        lines.push(Line::from(
-            Span::from(format!("   {summary}")).style(
-                Style::default()
-                    .fg(color)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        ));
+        lines
+            .push(Line::from(Span::from(format!("   {summary}")).style(
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+            )));
     }
 
     let paragraph = Paragraph::new(lines);
@@ -218,11 +215,7 @@ fn build_step_panel_title(session: &VerificationSession) -> String {
     }
 }
 
-fn render_detail_lines(
-    status: &StepStatus,
-    detail: &Option<StepDetail>,
-    lines: &mut Vec<Line>,
-) {
+fn render_detail_lines(status: &StepStatus, detail: &Option<StepDetail>, lines: &mut Vec<Line>) {
     let indent = "      ";
     match detail {
         Some(StepDetail::HexMismatch { expected, computed }) => {
@@ -265,8 +258,7 @@ fn render_footer(session: &VerificationSession, frame: &mut Frame, area: Rect) {
         // Push a flexible spacer -- we'll let the spans handle it
         spans.push(Span::from("  ").style(Style::default().bg(bg)));
         spans.push(
-            Span::from(hint_text.to_string())
-                .style(Style::default().fg(Color::DarkGray).bg(bg)),
+            Span::from(hint_text.to_string()).style(Style::default().fg(Color::DarkGray).bg(bg)),
         );
     }
 
@@ -281,14 +273,13 @@ fn pin_span(label: &str, state: &PinState, bg: Color) -> Span<'static> {
             .style(Style::default().fg(Color::DarkGray).bg(bg)),
         PinState::Pinned { key_id } => Span::from(format!("{label}: {key_id} pinned \u{2713}"))
             .style(Style::default().fg(Color::Green).bg(bg)),
-        PinState::Mismatch { key_id } => {
-            Span::from(format!("{label}: {key_id} MISMATCH \u{2717}")).style(
+        PinState::Mismatch { key_id } => Span::from(format!("{label}: {key_id} MISMATCH \u{2717}"))
+            .style(
                 Style::default()
                     .fg(Color::Red)
                     .bg(bg)
                     .add_modifier(Modifier::BOLD),
-            )
-        }
+            ),
         PinState::Unpinned => Span::from(format!("{label}: unpinned \u{26a0}"))
             .style(Style::default().fg(Color::Yellow).bg(bg)),
     }
@@ -323,7 +314,9 @@ mod tests {
     fn render_to_string(session: &VerificationSession, width: u16, height: u16) -> String {
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal.draw(|frame| super::render(session, frame)).unwrap();
+        terminal
+            .draw(|frame| super::render(session, frame))
+            .unwrap();
         let buffer = terminal.backend().buffer().clone();
         let mut output = String::new();
         for y in 0..buffer.area.height {
@@ -340,11 +333,8 @@ mod tests {
     fn bundle_verify_shows_pending_steps() {
         // New session with 0 revealed — all steps should show the "···" pending marker.
         let report = make_test_report(vec![StepStatus::Pass; 9]);
-        let session = VerificationSession::new_bundle_verify(
-            report,
-            PinState::Unpinned,
-            PinState::Unpinned,
-        );
+        let session =
+            VerificationSession::new_bundle_verify(report, PinState::Unpinned, PinState::Unpinned);
         let output = render_to_string(&session, 80, 15);
         assert!(
             output.contains('\u{00b7}'),
@@ -355,27 +345,18 @@ mod tests {
     #[test]
     fn bundle_verify_shows_pass_after_advance() {
         // After advancing once, the revealed step should show "PASS" and the cursor "▶".
-        // We collect the buffer row-by-row and trim each line to strip the right border
-        // character that ratatui's block widget draws over the last content cell (a
-        // known 1-column overflow in the dots-filler calculation).
         let report = make_test_report(vec![StepStatus::Pass; 9]);
-        let mut session = VerificationSession::new_bundle_verify(
-            report,
-            PinState::Unpinned,
-            PinState::Unpinned,
-        );
+        let mut session =
+            VerificationSession::new_bundle_verify(report, PinState::Unpinned, PinState::Unpinned);
         session.advance();
-        let raw = render_to_string(&session, 80, 15);
-        // Collect trimmed line content so the border char doesn't obscure the last
-        // character of the status label.
-        let trimmed: String = raw.lines().map(|l| l.trim_end().to_string() + "\n").collect();
+        let output = render_to_string(&session, 80, 15);
         assert!(
-            trimmed.contains("PASS") || raw.contains("PAS"),
-            "Expected 'PASS' status label in output after advancing; got:\n{raw}"
+            output.contains("PASS"),
+            "Expected 'PASS' status label in output after advancing; got:\n{output}"
         );
         assert!(
-            raw.contains('\u{25b6}'),
-            "Expected cursor '▶' in output after advancing; got:\n{raw}"
+            output.contains('\u{25b6}'),
+            "Expected cursor '▶' in output after advancing; got:\n{output}"
         );
     }
 
@@ -385,7 +366,9 @@ mod tests {
         let report = make_test_report(vec![StepStatus::Pass; 9]);
         let session = VerificationSession::new_bundle_verify(
             report,
-            PinState::Pinned { key_id: "a1b2".to_string() },
+            PinState::Pinned {
+                key_id: "a1b2".to_string(),
+            },
             PinState::Unpinned,
         );
         let output = render_to_string(&session, 80, 15);
@@ -426,11 +409,8 @@ mod tests {
     fn demo_mode_hides_keyboard_hints() {
         // In Demo mode the keyboard hint line ("[space]", "[c]", "[q]") must not appear.
         let report = make_test_report(vec![StepStatus::Pass; 9]);
-        let mut session = VerificationSession::new_bundle_verify(
-            report,
-            PinState::Unpinned,
-            PinState::Unpinned,
-        );
+        let mut session =
+            VerificationSession::new_bundle_verify(report, PinState::Unpinned, PinState::Unpinned);
         session.mode = Mode::Demo;
         let output = render_to_string(&session, 80, 15);
         assert!(

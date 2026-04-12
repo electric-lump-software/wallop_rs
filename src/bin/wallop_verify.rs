@@ -72,7 +72,7 @@ fn main() -> ExitCode {
         (
             Some(Commands::Selftest {
                 #[cfg(feature = "tui")]
-                tui: use_tui,
+                    tui: use_tui,
                 #[cfg(feature = "tui")]
                 demo,
             }),

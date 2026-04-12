@@ -1,4 +1,4 @@
-use wallop_verifier::verify_steps::{StepName, StepResult, StepStatus, VerificationReport};
+use wallop_verifier::verify_steps::{StepResult, StepStatus, VerificationReport};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -27,6 +27,7 @@ pub enum PinState {
 #[derive(Debug, Clone)]
 pub struct ScenarioEntry {
     pub name: String,
+    #[allow(dead_code)]
     pub description: String,
     pub tamper_summary: String,
     pub passed: Option<bool>,
@@ -66,7 +67,7 @@ impl VerificationSession {
             selected_step: 0,
             detail_expanded: false,
             operator_pin: op_pin,
-            infra_pin: infra_pin,
+            infra_pin,
             scenarios: Vec::new(),
             selected_scenario: 0,
             scenarios_passed: 0,
@@ -102,6 +103,7 @@ impl VerificationSession {
         self.revealed_count >= self.steps.len()
     }
 
+    #[allow(dead_code)]
     pub fn visible_steps(&self) -> &[StepResult] {
         &self.steps[..self.revealed_count]
     }
@@ -114,10 +116,7 @@ impl VerificationSession {
         }
         self.revealed_count += 1;
         self.selected_step = self.revealed_count - 1;
-        self.detail_expanded = matches!(
-            self.steps[self.selected_step].status,
-            StepStatus::Fail(_)
-        );
+        self.detail_expanded = matches!(self.steps[self.selected_step].status, StepStatus::Fail(_));
         true
     }
 
@@ -127,10 +126,8 @@ impl VerificationSession {
         self.revealed_count = self.steps.len();
         if !self.steps.is_empty() {
             self.selected_step = self.steps.len() - 1;
-            self.detail_expanded = matches!(
-                self.steps[self.selected_step].status,
-                StepStatus::Fail(_)
-            );
+            self.detail_expanded =
+                matches!(self.steps[self.selected_step].status, StepStatus::Fail(_));
         }
     }
 
@@ -138,10 +135,8 @@ impl VerificationSession {
     pub fn move_step_up(&mut self) {
         if self.selected_step > 0 {
             self.selected_step -= 1;
-            self.detail_expanded = matches!(
-                self.steps[self.selected_step].status,
-                StepStatus::Fail(_)
-            );
+            self.detail_expanded =
+                matches!(self.steps[self.selected_step].status, StepStatus::Fail(_));
         }
     }
 
@@ -149,10 +144,8 @@ impl VerificationSession {
     pub fn move_step_down(&mut self) {
         if self.revealed_count > 0 && self.selected_step < self.revealed_count - 1 {
             self.selected_step += 1;
-            self.detail_expanded = matches!(
-                self.steps[self.selected_step].status,
-                StepStatus::Fail(_)
-            );
+            self.detail_expanded =
+                matches!(self.steps[self.selected_step].status, StepStatus::Fail(_));
         }
     }
 
@@ -182,6 +175,7 @@ impl VerificationSession {
     }
 
     /// Swap in a new verification report, resetting step presentation state.
+    #[allow(dead_code)]
     pub fn replace_report(&mut self, report: VerificationReport) {
         self.steps = report.steps;
         self.reset_step_state();
@@ -215,6 +209,7 @@ impl VerificationSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wallop_verifier::verify_steps::StepName;
 
     fn make_report(statuses: Vec<StepStatus>) -> VerificationReport {
         let names = StepName::all();
@@ -529,7 +524,10 @@ mod tests {
         // Move back down to index 4 (Fail) -- detail should re-expand
         session.move_step_down();
         assert_eq!(session.selected_step, 4);
-        assert!(session.detail_expanded, "FAIL step should expand detail on move_down");
+        assert!(
+            session.detail_expanded,
+            "FAIL step should expand detail on move_down"
+        );
 
         // Move down to index 5 (Fail "mismatch") -- detail stays expanded
         session.move_step_down();

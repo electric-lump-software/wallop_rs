@@ -31,22 +31,15 @@ pub(crate) fn run_verify_tui(path: &str, pins: &super::PinConfig) -> ExitCode {
 
     // 3. Resolve pin states
     let op_pin = resolve_pin_state(&bundle.lock_receipt.public_key_hex, &pins.operator_key);
-    let infra_pin = resolve_pin_state(
-        &bundle.execution_receipt.public_key_hex,
-        &pins.infra_key,
-    );
+    let infra_pin = resolve_pin_state(&bundle.execution_receipt.public_key_hex, &pins.infra_key);
 
     // Bail on mismatch before entering TUI
     if matches!(op_pin, PinState::Mismatch { .. }) {
-        eprintln!(
-            "KEY PIN MISMATCH (operator): embedded key does not match pinned value"
-        );
+        eprintln!("KEY PIN MISMATCH (operator): embedded key does not match pinned value");
         return ExitCode::from(1);
     }
     if matches!(infra_pin, PinState::Mismatch { .. }) {
-        eprintln!(
-            "KEY PIN MISMATCH (infra): embedded key does not match pinned value"
-        );
+        eprintln!("KEY PIN MISMATCH (infra): embedded key does not match pinned value");
         return ExitCode::from(1);
     }
 
@@ -198,8 +191,7 @@ fn build_first_scenario_report() -> wallop_verifier::verify_steps::VerificationR
         },
     ];
 
-    let bundle_json =
-        wallop_verifier::_test_support::build_valid_bundle(&entries, Some("1013"), 2);
+    let bundle_json = wallop_verifier::_test_support::build_valid_bundle(&entries, Some("1013"), 2);
     let bundle = ProofBundle::from_json(&bundle_json).expect("generated bundle must parse");
     let mut report = verify_bundle(&bundle);
 
