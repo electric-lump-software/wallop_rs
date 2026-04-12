@@ -1,0 +1,42 @@
+{
+  "catalog_schema_version": "1",
+  "protocol_version": "1",
+  "defaults": {
+    "entry_count": 3,
+    "weather": "1013",
+    "winner_count": 2
+  },
+  "test_keypairs": {
+    "attacker_a": { "seed": "attacker_a_v1" },
+    "attacker_b": { "seed": "attacker_b_v1" }
+  },
+  "fixture_bundles": {},
+  "scenarios": [
+    {
+      "name": "lock_signature_byte_flip",
+      "category": "lock_signature",
+      "description": "Flip a byte in the lock receipt Ed25519 signature. Must be caught by the lock signature verification step.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "byte_flip",
+        "path": "lock_receipt.signature_hex",
+        "offset": 0
+      },
+      "expected_catch_steps": ["lock_signature"]
+    },
+    {
+      "name": "exec_signature_byte_flip",
+      "category": "exec_signature",
+      "description": "Flip a byte in the execution receipt Ed25519 signature. Must be caught by the exec signature verification step.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "field_op",
+        "op": "byte_flip",
+        "path": "execution_receipt.signature_hex",
+        "offset": 0
+      },
+      "expected_catch_steps": ["exec_signature"]
+    }
+  ]
+}

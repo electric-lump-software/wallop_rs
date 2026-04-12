@@ -9,3 +9,47 @@ pub(crate) mod loader;
 pub(crate) mod mutations;
 pub(crate) mod runner;
 pub(crate) mod schema;
+
+/// The shipping tamper scenario catalog, baked into the binary at compile time.
+const SHIPPING_CATALOG_JSON: &str = include_str!("scenarios.json");
+
+/// Load and run the shipping catalog.
+pub(crate) fn run_shipping_catalog() -> Result<runner::CatalogReport, runner::RunError> {
+    runner::run_catalog_from_str(SHIPPING_CATALOG_JSON)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shipping_catalog_parses_and_validates() {
+        let _catalog = loader::load_catalog_from_str(SHIPPING_CATALOG_JSON)
+            .expect("shipping catalog must parse and validate");
+    }
+
+    #[test]
+    fn shipping_catalog_runs_without_errors() {
+        let report = run_shipping_catalog().expect("shipping catalog must run");
+        assert!(report.total_scenarios > 0, "catalog should have scenarios");
+        // We don't assert zero failures here — that's the selftest command's
+        // responsibility. This test only verifies the catalog is structurally
+        // valid and runnable.
+    }
+
+    #[test]
+    fn shipping_catalog_scenarios_that_run_all_pass() {
+        let report = run_shipping_catalog().expect("shipping catalog must run");
+        assert_eq!(
+            report.failed_p0, 0,
+            "no scenario should pass when it should fail (P0)"
+        );
+        assert_eq!(
+            report.caught_by_wrong_step, 0,
+            "no scenario should be caught by an unexpected step"
+        );
+        // Coverage completeness is NOT asserted here — the initial catalog
+        // may not cover all StepName variants. That's intentional — more
+        // scenarios are added iteratively.
+    }
+}
