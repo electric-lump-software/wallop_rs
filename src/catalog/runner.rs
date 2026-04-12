@@ -9,8 +9,6 @@
 //! actually fired as the first-failing step in at least one scenario (runtime,
 //! not just declared).
 
-#![allow(dead_code)] // consumed by selftest CLI (added in a later task)
-
 use crate::_test_support::build_valid_bundle;
 use crate::catalog::keypairs::derive_keypair;
 use crate::catalog::loader::{LoadError, load_catalog_from_str};
@@ -22,7 +20,7 @@ use std::collections::HashSet;
 
 /// Overall catalog run report.
 #[derive(Debug)]
-pub(crate) struct CatalogReport {
+pub struct CatalogReport {
     pub total_scenarios: usize,
     pub passed: usize,
     pub failed_p0: usize,
@@ -35,14 +33,14 @@ pub(crate) struct CatalogReport {
 
 /// Result of running a single scenario.
 #[derive(Debug)]
-pub(crate) struct ScenarioResult {
+pub struct ScenarioResult {
     pub name: String,
     pub outcome: ScenarioOutcome,
 }
 
 /// Outcome of a single scenario execution.
 #[derive(Debug)]
-pub(crate) enum ScenarioOutcome {
+pub enum ScenarioOutcome {
     /// The scenario was caught by an expected step.
     Passed { caught_at: StepName },
     /// The verifier accepted the tampered bundle — a P0 finding.
@@ -58,7 +56,7 @@ pub(crate) enum ScenarioOutcome {
 
 /// Error from running the catalog.
 #[derive(Debug)]
-pub(crate) enum RunError {
+pub enum RunError {
     Load(LoadError),
 }
 

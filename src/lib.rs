@@ -6,8 +6,13 @@ mod wasm;
 #[cfg(feature = "cli")]
 pub mod drand;
 
+/// Internal catalog infrastructure for the `wallop-verify selftest` command.
+/// Not a stable API — exposed as `pub` only because the binary target needs
+/// to reach `catalog::run_shipping_catalog()`. Do not depend on this module
+/// from external crates.
 #[cfg(feature = "cli")]
-pub(crate) mod catalog;
+#[doc(hidden)]
+pub mod catalog;
 
 #[doc(hidden)]
 pub mod _test_support;

@@ -18,7 +18,7 @@ pub(crate) const SUPPORTED_PROTOCOL_VERSION: &str = "1";
 
 /// Error type for catalog loading failures.
 #[derive(Debug)]
-pub(crate) enum LoadError {
+pub enum LoadError {
     Parse(serde_json::Error),
     SchemaVersionMismatch {
         catalog: String,

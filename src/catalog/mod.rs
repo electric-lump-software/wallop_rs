@@ -7,14 +7,14 @@
 pub(crate) mod keypairs;
 pub(crate) mod loader;
 pub(crate) mod mutations;
-pub(crate) mod runner;
+pub mod runner;
 pub(crate) mod schema;
 
 /// The shipping tamper scenario catalog, baked into the binary at compile time.
 const SHIPPING_CATALOG_JSON: &str = include_str!("scenarios.json");
 
 /// Load and run the shipping catalog.
-pub(crate) fn run_shipping_catalog() -> Result<runner::CatalogReport, runner::RunError> {
+pub fn run_shipping_catalog() -> Result<runner::CatalogReport, runner::RunError> {
     runner::run_catalog_from_str(SHIPPING_CATALOG_JSON)
 }
 
