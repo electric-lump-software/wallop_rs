@@ -5,4 +5,5 @@
 //! in verify_steps) and the `wallop-verify selftest` CLI subcommand.
 
 pub(crate) mod keypairs;
+pub(crate) mod loader;
 pub(crate) mod schema;

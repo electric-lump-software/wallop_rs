@@ -8,6 +8,8 @@
 //! This must produce bit-identical keypairs in Rust, Elixir, and Python
 //! implementations or scenario results will diverge silently.
 
+#![allow(dead_code)] // consumed by runner module (added in a later task)
+
 use ed25519_dalek::SigningKey;
 use sha2::{Digest, Sha256};
 
