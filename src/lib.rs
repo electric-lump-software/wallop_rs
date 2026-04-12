@@ -6,6 +6,9 @@ mod wasm;
 #[cfg(feature = "cli")]
 pub mod drand;
 
+#[cfg(feature = "cli")]
+pub(crate) mod catalog;
+
 #[doc(hidden)]
 pub mod _test_support;
 
