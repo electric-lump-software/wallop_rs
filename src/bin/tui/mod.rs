@@ -5,12 +5,210 @@ mod state;
 
 use std::process::ExitCode;
 
-pub(crate) fn run_verify_tui(_path: &str, _pins: &super::PinConfig) -> ExitCode {
-    eprintln!("TUI mode not yet implemented");
-    ExitCode::from(2)
+use wallop_verifier::bundle::ProofBundle;
+use wallop_verifier::catalog::runner::ScenarioOutcome;
+use wallop_verifier::verify_steps::{StepName, StepStatus, verify_bundle};
+
+use state::{Mode, PinState, ScenarioEntry, VerificationSession};
+
+// ── Bundle verification TUI ───────────────────────────────────────────────
+
+pub(crate) fn run_verify_tui(path: &str, pins: &super::PinConfig) -> ExitCode {
+    // 1. Read bundle JSON
+    let json = match read_bundle_input(path) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+
+    // 2. Parse ProofBundle
+    let bundle = match ProofBundle::from_json(&json) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("{e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    // 3. Resolve pin states
+    let op_pin = resolve_pin_state(&bundle.lock_receipt.public_key_hex, &pins.operator_key);
+    let infra_pin = resolve_pin_state(
+        &bundle.execution_receipt.public_key_hex,
+        &pins.infra_key,
+    );
+
+    // Bail on mismatch before entering TUI
+    if matches!(op_pin, PinState::Mismatch { .. }) {
+        eprintln!(
+            "KEY PIN MISMATCH (operator): embedded key does not match pinned value"
+        );
+        return ExitCode::from(1);
+    }
+    if matches!(infra_pin, PinState::Mismatch { .. }) {
+        eprintln!(
+            "KEY PIN MISMATCH (infra): embedded key does not match pinned value"
+        );
+        return ExitCode::from(1);
+    }
+
+    // 4. Run verification, build session
+    let report = verify_bundle(&bundle);
+    let passed = report.passed();
+    let session = VerificationSession::new_bundle_verify(report, op_pin, infra_pin);
+
+    // 5. Run the TUI
+    if let Err(e) = app::run(session) {
+        eprintln!("TUI error: {e}");
+        return ExitCode::from(2);
+    }
+
+    // 6. Exit code
+    if passed {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
 }
 
-pub(crate) fn run_selftest_tui(_demo: bool) -> ExitCode {
-    eprintln!("TUI mode not yet implemented");
-    ExitCode::from(2)
+// ── Selftest TUI ──────────────────────────────────────────────────────────
+
+pub(crate) fn run_selftest_tui(demo: bool) -> ExitCode {
+    // 1. Run the shipping catalog
+    let catalog_report = match wallop_verifier::catalog::run_shipping_catalog() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("catalog load error: {e}");
+            return ExitCode::from(3);
+        }
+    };
+
+    // 2. Build scenario entries from catalog results
+    let scenarios: Vec<ScenarioEntry> = catalog_report
+        .results
+        .iter()
+        .map(|r| {
+            let passed = match &r.outcome {
+                ScenarioOutcome::Passed { .. } => Some(true),
+                ScenarioOutcome::FailedP0 => Some(false),
+                ScenarioOutcome::CaughtByWrongStep { .. } => Some(false),
+                ScenarioOutcome::MutationError(_) => None,
+            };
+            ScenarioEntry {
+                name: r.name.clone(),
+                description: String::new(),
+                tamper_summary: String::new(),
+                passed: if demo { None } else { passed },
+            }
+        })
+        .collect();
+
+    // 3. Build initial verification report for the first scenario
+    let initial_report = build_first_scenario_report();
+
+    // 4. Create session
+    let mut session = VerificationSession::new_selftest(initial_report, scenarios);
+    if demo {
+        session.mode = Mode::Demo;
+    }
+
+    // Pre-set passed counts for non-demo mode
+    if !demo {
+        session.scenarios_passed = catalog_report.passed;
+    }
+
+    // 5. Run the TUI
+    if let Err(e) = app::run(session) {
+        eprintln!("TUI error: {e}");
+        return ExitCode::from(2);
+    }
+
+    // 6. Exit code based on catalog results
+    if catalog_report.failed_p0 > 0 {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+fn read_bundle_input(path: &str) -> Result<String, ExitCode> {
+    if path == "-" {
+        use std::io::Read;
+        let mut buf = String::new();
+        if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+            eprintln!("error reading stdin: {e}");
+            return Err(ExitCode::from(2));
+        }
+        Ok(buf)
+    } else {
+        match std::fs::read_to_string(path) {
+            Ok(s) => Ok(s),
+            Err(e) => {
+                eprintln!("error reading {path}: {e}");
+                Err(ExitCode::from(2))
+            }
+        }
+    }
+}
+
+fn resolve_pin_state(embedded_key_hex: &str, pin: &Option<String>) -> PinState {
+    match pin {
+        Some(pinned) => {
+            if pinned.eq_ignore_ascii_case(embedded_key_hex) {
+                let key_bytes: [u8; 32] = match hex::decode(embedded_key_hex)
+                    .ok()
+                    .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                {
+                    Some(k) => k,
+                    None => {
+                        return PinState::Pinned {
+                            key_id: embedded_key_hex[..8].to_string(),
+                        };
+                    }
+                };
+                PinState::Pinned {
+                    key_id: wallop_verifier::key_id(&key_bytes),
+                }
+            } else {
+                let kid = if embedded_key_hex.len() >= 8 {
+                    embedded_key_hex[..8].to_string()
+                } else {
+                    embedded_key_hex.to_string()
+                };
+                PinState::Mismatch { key_id: kid }
+            }
+        }
+        None => PinState::Unpinned,
+    }
+}
+
+fn build_first_scenario_report() -> wallop_verifier::verify_steps::VerificationReport {
+    let entries = vec![
+        wallop_verifier::Entry {
+            id: "a".into(),
+            weight: 1,
+        },
+        wallop_verifier::Entry {
+            id: "b".into(),
+            weight: 1,
+        },
+        wallop_verifier::Entry {
+            id: "c".into(),
+            weight: 1,
+        },
+    ];
+
+    let bundle_json =
+        wallop_verifier::_test_support::build_valid_bundle(&entries, Some("1013"), 2);
+    let bundle = ProofBundle::from_json(&bundle_json).expect("generated bundle must parse");
+    let mut report = verify_bundle(&bundle);
+
+    // Override the DrandBlsSignature step to SKIP since this is a test fixture
+    for step in &mut report.steps {
+        if step.name == StepName::DrandBlsSignature {
+            step.status = StepStatus::Skip("test fixture".into());
+        }
+    }
+
+    report
 }
