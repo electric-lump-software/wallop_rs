@@ -59,47 +59,16 @@ fn render_scenario_list(session: &VerificationSession, frame: &mut Frame, area: 
             let is_selected = i == session.selected_scenario;
             let marker = if is_selected { "▶ " } else { "  " };
 
-            if is_selected {
-                // Build 9-char heatmap from session.steps for the selected scenario
-                let mut spans: Vec<Span> = vec![
-                    Span::from(marker.to_string())
-                        .style(Style::default().fg(Color::Yellow)),
-                ];
-                let total = session.steps.len().min(9);
-                for si in 0..total {
-                    if si < session.revealed_count {
-                        let (ch, color) = match &session.steps[si].status {
-                            StepStatus::Pass => ("▓", Color::Green),
-                            StepStatus::Fail(_) => ("▓", Color::Red),
-                            StepStatus::Skip(_) => ("░", Color::DarkGray),
-                        };
-                        spans.push(
-                            Span::from(ch).style(Style::default().fg(color)),
-                        );
-                    } else {
-                        spans.push(
-                            Span::from("·")
-                                .style(Style::default().fg(Color::Rgb(60, 60, 60))),
-                        );
-                    }
-                }
-                spans.push(
-                    Span::from(format!(" {}", sc.name))
-                        .style(Style::default().fg(Color::Yellow)),
-                );
-                ListItem::new(Line::from(spans))
-            } else {
-                // Non-selected: simple indicator
-                let (prefix, color) = match sc.passed {
-                    Some(true) => ("✓ ", Color::Green),
-                    Some(false) => ("✗ ", Color::Red),
-                    None => ("  ", Color::DarkGray),
-                };
-                let text = format!("{marker}{prefix}{}", sc.name);
-                ListItem::new(Line::from(
-                    Span::from(text).style(Style::default().fg(color)),
-                ))
-            }
+            let (prefix, color) = match sc.passed {
+                Some(true) => ("✓ ", Color::Green),
+                Some(false) => ("✗ ", Color::Red),
+                None => ("  ", Color::DarkGray),
+            };
+            let row_color = if is_selected { Color::Yellow } else { color };
+            let text = format!("{marker}{prefix}{}", sc.name);
+            ListItem::new(Line::from(
+                Span::from(text).style(Style::default().fg(row_color)),
+            ))
         })
         .collect();
 
@@ -147,6 +116,31 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
     // Build line items
     let mut lines: Vec<Line> = Vec::new();
     let total = session.total_steps();
+
+    // Step heatmap in selftest mode: 9-char bar showing step results at a glance
+    if session.view == View::Selftest {
+        let mut heatmap_spans: Vec<Span> = vec![
+            Span::from("   ").style(Style::default()),
+        ];
+        for si in 0..total.min(9) {
+            if si < session.revealed_count {
+                let (ch, color) = match &session.steps[si].status {
+                    StepStatus::Pass => ("▓", Color::Green),
+                    StepStatus::Fail(_) => ("▓", Color::Red),
+                    StepStatus::Skip(_) => ("░", Color::DarkGray),
+                };
+                heatmap_spans.push(
+                    Span::from(ch).style(Style::default().fg(color)),
+                );
+            } else {
+                heatmap_spans.push(
+                    Span::from("·").style(Style::default().fg(Color::Rgb(60, 60, 60))),
+                );
+            }
+        }
+        lines.push(Line::from(heatmap_spans));
+        lines.push(Line::from(""));
+    }
 
     for i in 0..total {
         // Check if this step is the one being animated
