@@ -43,6 +43,8 @@ pub struct ScenarioEntry {
     pub description: String,
     pub tamper_summary: String,
     pub passed: Option<bool>,
+    /// Per-step statuses for the heatmap display. Empty until the scenario has run.
+    pub step_statuses: Vec<StepStatus>,
 }
 
 pub struct VerificationSession {
@@ -269,18 +271,21 @@ mod tests {
                 description: "Modify entry weights".into(),
                 tamper_summary: "weight 1 -> 99".into(),
                 passed: None,
+                step_statuses: vec![],
             },
             ScenarioEntry {
                 name: "Bad lock sig".into(),
                 description: "Corrupt lock signature".into(),
                 tamper_summary: "flip sig bytes".into(),
                 passed: None,
+                step_statuses: vec![],
             },
             ScenarioEntry {
                 name: "Wrong seed".into(),
                 description: "Alter the seed value".into(),
                 tamper_summary: "seed -> ff..ff".into(),
                 passed: None,
+                step_statuses: vec![],
             },
         ]
     }
@@ -531,12 +536,14 @@ mod tests {
                 description: "".into(),
                 tamper_summary: "".into(),
                 passed: None,
+                step_statuses: vec![],
             },
             ScenarioEntry {
                 name: "b".into(),
                 description: "".into(),
                 tamper_summary: "".into(),
                 passed: None,
+                step_statuses: vec![],
             },
         ];
         let mut session = VerificationSession::new_selftest(all_pass_report(), scenarios);

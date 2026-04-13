@@ -220,6 +220,8 @@ fn run_demo_loop(
                             )
                         });
                         session.scenarios[scenario_idx].passed = Some(!has_fail);
+                        session.scenarios[scenario_idx].step_statuses =
+                            session.steps.iter().map(|s| s.status.clone()).collect();
                         if !has_fail {
                             session.scenarios_passed += 1;
                         }

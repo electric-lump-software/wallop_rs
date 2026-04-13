@@ -76,7 +76,7 @@ pub(crate) fn run_selftest_tui(demo: bool, record: Option<String>) -> ExitCode {
         };
 
     // 2. Build scenario entries from catalog results
-    let scenarios: Vec<ScenarioEntry> = catalog_report
+    let mut scenarios: Vec<ScenarioEntry> = catalog_report
         .results
         .iter()
         .map(|r| {
@@ -91,6 +91,7 @@ pub(crate) fn run_selftest_tui(demo: bool, record: Option<String>) -> ExitCode {
                 description: r.description.clone(),
                 tamper_summary: r.description.clone(),
                 passed: if demo { None } else { passed },
+                step_statuses: vec![],
             }
         })
         .collect();
@@ -110,6 +111,13 @@ pub(crate) fn run_selftest_tui(demo: bool, record: Option<String>) -> ExitCode {
                 })
             })
             .collect();
+
+    // Populate step_statuses from the (now-overridden) per-scenario reports
+    for (i, scenario) in scenarios.iter_mut().enumerate() {
+        if let Some(Some(report)) = scenario_reports.get(i) {
+            scenario.step_statuses = report.steps.iter().map(|s| s.status.clone()).collect();
+        }
+    }
 
     // 4. Build initial verification report from the first scenario
     let initial_report = scenario_reports

@@ -66,9 +66,23 @@ fn render_scenario_list(session: &VerificationSession, frame: &mut Frame, area: 
             };
             let row_color = if is_selected { Color::Yellow } else { color };
             let text = format!("{marker}{prefix}{}", sc.name);
-            ListItem::new(Line::from(
-                Span::from(text).style(Style::default().fg(row_color)),
-            ))
+            let name_line = Line::from(Span::from(text).style(Style::default().fg(row_color)));
+            let mut item_lines = vec![name_line];
+            if !sc.step_statuses.is_empty() {
+                let mut hm_spans: Vec<Span> = vec![
+                    Span::from("      ").style(Style::default()),
+                ];
+                for status in &sc.step_statuses {
+                    let (ch, color) = match status {
+                        StepStatus::Pass => ("▓", Color::Green),
+                        StepStatus::Fail(_) => ("▓", Color::Red),
+                        StepStatus::Skip(_) => ("░", Color::DarkGray),
+                    };
+                    hm_spans.push(Span::from(ch).style(Style::default().fg(color)));
+                }
+                item_lines.push(Line::from(hm_spans));
+            }
+            ListItem::new(item_lines)
         })
         .collect();
 
@@ -116,31 +130,6 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
     // Build line items
     let mut lines: Vec<Line> = Vec::new();
     let total = session.total_steps();
-
-    // Step heatmap in selftest mode: 9-char bar showing step results at a glance
-    if session.view == View::Selftest {
-        let mut heatmap_spans: Vec<Span> = vec![
-            Span::from("   ").style(Style::default()),
-        ];
-        for si in 0..total.min(9) {
-            if si < session.revealed_count {
-                let (ch, color) = match &session.steps[si].status {
-                    StepStatus::Pass => ("▓", Color::Green),
-                    StepStatus::Fail(_) => ("▓", Color::Red),
-                    StepStatus::Skip(_) => ("░", Color::DarkGray),
-                };
-                heatmap_spans.push(
-                    Span::from(ch).style(Style::default().fg(color)),
-                );
-            } else {
-                heatmap_spans.push(
-                    Span::from("·").style(Style::default().fg(Color::Rgb(60, 60, 60))),
-                );
-            }
-        }
-        lines.push(Line::from(heatmap_spans));
-        lines.push(Line::from(""));
-    }
 
     for i in 0..total {
         // Check if this step is the one being animated
@@ -546,6 +535,7 @@ mod tests {
             description: "A test scenario".to_string(),
             tamper_summary: String::new(),
             passed: None,
+            step_statuses: vec![],
         }];
         let session = VerificationSession::new_selftest(report, scenarios);
         let output = render_to_string(&session, 80, 15);
