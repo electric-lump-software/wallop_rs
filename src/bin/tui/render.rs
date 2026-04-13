@@ -6,7 +6,9 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
 use wallop_verifier::verify_steps::{StepDetail, StepStatus};
 
-use super::state::{Mode, PinState, VerificationSession, View};
+use super::state::{AnimationPhase, Mode, PinState, VerificationSession, View};
+
+const SPINNER_CHARS: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /// Top-level render entry point.
 pub fn render(session: &VerificationSession, frame: &mut Frame) {
@@ -122,6 +124,13 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
     let total = session.total_steps();
 
     for i in 0..total {
+        // Check if this step is the one being animated
+        let anim_step = match &session.animation {
+            AnimationPhase::Spinning { step, .. } => Some(*step),
+            AnimationPhase::Scrambling { step, .. } => Some(*step),
+            _ => None,
+        };
+
         if i < session.revealed_count {
             // Revealed step
             let step = &session.steps[i];
@@ -165,6 +174,81 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
             // Inline detail expansion
             if is_selected && session.detail_expanded {
                 render_detail_lines(&step.status, &step.detail, &mut lines);
+            }
+        } else if anim_step == Some(i) {
+            // This step is being animated
+            let step = &session.steps[i];
+            let name_str = format!("{}", step.name);
+
+            match &session.animation {
+                AnimationPhase::Spinning { started_at, .. } => {
+                    let elapsed_ms = started_at.elapsed().as_millis() as usize;
+                    let spinner_idx = (elapsed_ms / 80) % SPINNER_CHARS.len();
+                    let spinner = SPINNER_CHARS[spinner_idx];
+
+                    let line = Line::from(vec![
+                        Span::from(format!(" {spinner} "))
+                            .style(Style::default().fg(Color::Yellow)),
+                        Span::from(name_str).style(Style::default().fg(Color::White)),
+                        Span::from(" \u{00b7}\u{00b7}\u{00b7}")
+                            .style(Style::default().fg(Color::DarkGray)),
+                    ]);
+                    lines.push(line);
+                }
+                AnimationPhase::Scrambling {
+                    started_at,
+                    target_hex,
+                    ..
+                } => {
+                    // Step name line (no status yet)
+                    let line = Line::from(vec![
+                        Span::from("   ").style(Style::default().fg(Color::White)),
+                        Span::from(name_str).style(Style::default().fg(Color::White)),
+                        Span::from(" \u{00b7}\u{00b7}\u{00b7}")
+                            .style(Style::default().fg(Color::DarkGray)),
+                    ]);
+                    lines.push(line);
+
+                    // Hex scramble line
+                    let elapsed_ms = started_at.elapsed().as_millis() as usize;
+                    let total_chars = target_hex.len();
+                    if total_chars > 0 {
+                        let elapsed_frac = (elapsed_ms as f64) / 300.0; // DEMO_SCRAMBLE_DURATION
+                        let settled_count =
+                            ((elapsed_frac * total_chars as f64) as usize).min(total_chars);
+
+                        let target_chars: Vec<char> = target_hex.chars().collect();
+                        let mut hex_spans: Vec<Span> = Vec::new();
+                        hex_spans
+                            .push(Span::from("      ").style(Style::default().fg(Color::Reset)));
+
+                        for (ci, &tc) in target_chars.iter().enumerate() {
+                            if ci < settled_count {
+                                // Settled: show real char in green
+                                hex_spans.push(
+                                    Span::from(tc.to_string())
+                                        .style(Style::default().fg(Color::Green)),
+                                );
+                            } else {
+                                // Unsettled: deterministic pseudo-random hex char
+                                let pseudo =
+                                    ((elapsed_ms / 30 + ci * 7) % 16) as u8;
+                                let ch = char::from(if pseudo < 10 {
+                                    b'0' + pseudo
+                                } else {
+                                    b'a' + pseudo - 10
+                                });
+                                hex_spans.push(
+                                    Span::from(ch.to_string())
+                                        .style(Style::default().fg(Color::Yellow)),
+                                );
+                            }
+                        }
+
+                        lines.push(Line::from(hex_spans));
+                    }
+                }
+                _ => {}
             }
         } else {
             // Unrevealed step
