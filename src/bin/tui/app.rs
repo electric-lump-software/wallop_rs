@@ -201,13 +201,6 @@ fn run_demo_loop(
                     if target.is_empty() {
                         // No hex for this step (winners, BLS) -- skip scramble
                         session.advance();
-                        if matches!(
-                            session.steps.get(step).map(|s| &s.status),
-                            Some(wallop_verifier::verify_steps::StepStatus::Fail(_))
-                        ) {
-                            print!("\x07");
-                            io::stdout().flush().ok();
-                        }
                         session.animation = AnimationPhase::Settled {
                             step,
                             started_at: Instant::now(),
