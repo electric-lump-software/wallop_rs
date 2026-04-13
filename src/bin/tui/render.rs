@@ -186,30 +186,55 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
                     let spinner_idx = (elapsed_ms / 80) % SPINNER_CHARS.len();
                     let spinner = SPINNER_CHARS[spinner_idx];
 
-                    // Dots pulse brightness sinusoidally: grey 40..120 at ~2Hz
-                    let phase = (elapsed_ms as f64) * 2.0 * std::f64::consts::PI / 500.0;
-                    let grey = (80.0 + 40.0 * phase.sin()) as u8;
-                    let dot_color = Color::Rgb(grey, grey, grey);
-
-                    // Calculate dot count (same formula as revealed steps)
+                    // Calculate wave area width (same formula as dots)
                     let available = inner.width as usize;
                     let gutter_len = 3;
                     let name_len = name_str.len();
-                    let status_len = 4; // "PASS"/"FAIL"/"SKIP"
+                    let status_len = 4;
                     let min_dots = 2;
                     let fixed_width = gutter_len + name_len + 2 + status_len;
-                    let dots_count = available.saturating_sub(fixed_width).max(min_dots);
-                    let dots: String = " ".to_string() + &".".repeat(dots_count) + " ";
+                    let wave_count = available.saturating_sub(fixed_width).max(min_dots);
 
-                    let line = Line::from(vec![
+                    // Travelling sine wave using braille chars at different heights
+                    // ⣀ (bottom) → ⡄ → ⠤ → ⠑ → ⠊ → ⠉ (top) and back
+                    const WAVE_CHARS: &[char] = &[
+                        '⣀', '⢄', '⠤', '⠒', '⠑', '⠊', '⠉',
+                        '⠊', '⠑', '⠒', '⠤', '⢄',
+                    ];
+                    let wave_len = WAVE_CHARS.len();
+                    let speed = 60.0_f64; // ms per wave step
+
+                    let mut wave_spans: Vec<Span> = vec![
                         Span::from(format!(" {spinner} "))
                             .style(Style::default().fg(Color::Yellow)),
                         Span::from(name_str).style(Style::default().fg(Color::White)),
-                        Span::from(dots).style(Style::default().fg(dot_color)),
-                        // No status text yet — just empty space where PASS/FAIL will appear
-                        Span::from("    ").style(Style::default()),
-                    ]);
-                    lines.push(line);
+                        Span::from(" ").style(Style::default()),
+                    ];
+
+                    for ci in 0..wave_count {
+                        let phase = (elapsed_ms as f64 / speed) + (ci as f64 * 0.7);
+                        let idx = (phase as usize) % wave_len;
+                        let ch = WAVE_CHARS[idx];
+                        // Brightness varies with wave position
+                        let brightness = match idx {
+                            0 | 11 => 50,
+                            1 | 10 => 65,
+                            2 | 9 => 80,
+                            3 | 8 => 95,
+                            4 | 7 => 110,
+                            5 | 6 => 120,
+                            _ => 80,
+                        };
+                        wave_spans.push(
+                            Span::from(ch.to_string())
+                                .style(Style::default().fg(Color::Rgb(brightness, brightness, brightness))),
+                        );
+                    }
+
+                    wave_spans.push(Span::from(" ").style(Style::default()));
+                    wave_spans.push(Span::from("    ").style(Style::default()));
+
+                    lines.push(Line::from(wave_spans));
                 }
                 AnimationPhase::Scrambling { started_at, .. } => {
                     // Status slot (4 chars) scrambles left-to-right to the real value
