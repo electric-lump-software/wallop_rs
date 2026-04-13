@@ -336,7 +336,16 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
     if let Some(summary) = session.result_summary() {
         lines.push(Line::from(""));
         let color = if summary.contains("PASS") {
-            Color::Green
+            // During victory ripple, pulse the green brightness
+            if let AnimationPhase::VictoryRipple { started_at } = &session.animation {
+                let elapsed_ms = started_at.elapsed().as_millis() as f64;
+                // Pulse: 180 -> 255 -> 180 over 800ms (sine wave)
+                let t = (elapsed_ms / 800.0) * std::f64::consts::PI;
+                let bright = 180.0 + 75.0 * t.sin();
+                Color::Rgb(0, bright.clamp(0.0, 255.0) as u8, 0)
+            } else {
+                Color::Green
+            }
         } else {
             Color::Red
         };

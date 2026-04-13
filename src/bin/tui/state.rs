@@ -33,6 +33,7 @@ pub enum AnimationPhase {
     #[allow(dead_code)]
     Scrambling { step: usize, started_at: Instant, target_hex: String },
     Settled { step: usize, started_at: Instant },
+    VictoryRipple { started_at: Instant },
 }
 
 #[derive(Debug, Clone)]

@@ -170,6 +170,38 @@ fn run_demo_loop(
                     // Check if this was the last scenario
                     scenario_idx += 1;
                     if scenario_idx >= total_scenarios {
+                        // Check if all scenarios passed for victory animation
+                        let all_passed = session
+                            .scenarios
+                            .iter()
+                            .all(|s| s.passed == Some(true));
+
+                        if all_passed {
+                            // Victory ripple: brief green pulse on RESULT text
+                            session.animation = AnimationPhase::VictoryRipple {
+                                started_at: Instant::now(),
+                            };
+                            while let AnimationPhase::VictoryRipple { started_at } =
+                                &session.animation
+                            {
+                                if started_at.elapsed() > Duration::from_millis(800) {
+                                    session.animation = AnimationPhase::Idle;
+                                    break;
+                                }
+                                terminal
+                                    .draw(|frame| render::render(session, frame))?;
+                                if event::poll(Duration::from_millis(30))?
+                                    && let Event::Key(key_event) = event::read()?
+                                    && (key_event.code == KeyCode::Char('q')
+                                        || (key_event.modifiers
+                                            .contains(KeyModifiers::CONTROL)
+                                            && key_event.code == KeyCode::Char('c')))
+                                {
+                                    return Ok(());
+                                }
+                            }
+                        }
+
                         // Hold on summary -- wait for quit
                         loop {
                             terminal.draw(|frame| render::render(session, frame))?;
@@ -236,6 +268,9 @@ fn run_demo_loop(
                 if started_at.elapsed() > pause {
                     session.animation = AnimationPhase::Idle;
                 }
+            }
+            AnimationPhase::VictoryRipple { .. } => {
+                // Handled separately after the main loop; should not reach here
             }
         }
 
