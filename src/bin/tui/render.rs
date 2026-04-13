@@ -195,55 +195,47 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
                     let fixed_width = gutter_len + name_len + 2 + status_len;
                     let wave_count = available.saturating_sub(fixed_width).max(min_dots);
 
-                    // Graphic EQ effect: each column bounces independently
-                    // using different frequencies so they look quasi-random.
-                    const EQ_CHARS: &[char] = &[
-                        '⣀', '⢄', '⠤', '⠒', '⠑', '⠊', '⠉',
-                        '⠊', '⠑', '⠒', '⠤', '⢄',
-                    ];
-                    let eq_len = EQ_CHARS.len();
+                    // Small travelling wave: mostly flat dots with a gentle
+                    // 3-4 char ripple moving across. Subtle, like a pulse.
+                    //
+                    // Most chars are '·' (flat). The wave is a small bump
+                    // that travels left-to-right across the dot area.
+                    const RIPPLE: &[char] = &['·', '⠒', '⠊', '⠉', '⠊', '⠒', '·'];
+                    let ripple_len = RIPPLE.len();
 
-                    // Each column gets a unique speed derived from a hash of its
-                    // position — primes keep them out of sync with each other.
-                    const PRIMES: &[usize] = &[
-                        53, 67, 73, 89, 97, 59, 83, 71, 61, 79,
-                        101, 103, 107, 109, 113, 127, 131, 137, 139, 149,
-                        151, 157, 163, 167, 173, 179, 181, 191, 193, 197,
-                    ];
+                    // Wave position moves across the dot area
+                    let wave_speed = 40.0_f64; // ms per column
+                    let wave_pos = (elapsed_ms as f64 / wave_speed) as isize;
 
-                    let mut eq_spans: Vec<Span> = vec![
+                    let mut wave_spans: Vec<Span> = vec![
                         Span::from(format!(" {spinner} "))
                             .style(Style::default().fg(Color::Yellow)),
                         Span::from(name_str).style(Style::default().fg(Color::White)),
                         Span::from(" ").style(Style::default()),
                     ];
 
+                    let dot_color = Color::Rgb(70, 70, 70);
                     for ci in 0..wave_count {
-                        // Each column oscillates at its own rate
-                        let speed = PRIMES[ci % PRIMES.len()] as f64;
-                        let offset = (ci * 37 + ci * ci * 13) as f64; // phase offset
-                        let phase = (elapsed_ms as f64 + offset) / speed;
-                        let idx = (phase as usize) % eq_len;
-                        let ch = EQ_CHARS[idx];
-                        let brightness: u8 = match idx {
-                            0 | 11 => 50,
-                            1 | 10 => 60,
-                            2 | 9 => 75,
-                            3 | 8 => 90,
-                            4 | 7 => 105,
-                            5 | 6 => 120,
-                            _ => 80,
-                        };
-                        eq_spans.push(
-                            Span::from(ch.to_string())
-                                .style(Style::default().fg(Color::Rgb(brightness, brightness, brightness))),
-                        );
+                        // Distance from wave centre
+                        let dist = ci as isize - (wave_pos % (wave_count as isize + ripple_len as isize));
+                        if dist >= 0 && (dist as usize) < ripple_len {
+                            let ch = RIPPLE[dist as usize];
+                            let brightness: u8 = if dist == 3 { 120 } else if dist == 2 || dist == 4 { 100 } else { 80 };
+                            wave_spans.push(
+                                Span::from(ch.to_string())
+                                    .style(Style::default().fg(Color::Rgb(brightness, brightness, brightness))),
+                            );
+                        } else {
+                            wave_spans.push(
+                                Span::from("·").style(Style::default().fg(dot_color)),
+                            );
+                        }
                     }
 
-                    eq_spans.push(Span::from(" ").style(Style::default()));
-                    eq_spans.push(Span::from("    ").style(Style::default()));
+                    wave_spans.push(Span::from(" ").style(Style::default()));
+                    wave_spans.push(Span::from("    ").style(Style::default()));
 
-                    lines.push(Line::from(eq_spans));
+                    lines.push(Line::from(wave_spans));
                 }
                 AnimationPhase::Scrambling { started_at, .. } => {
                     // Status slot (4 chars) scrambles left-to-right to the real value
