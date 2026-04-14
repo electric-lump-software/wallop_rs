@@ -252,7 +252,6 @@ fn run_demo_loop(
                                 &session.animation
                             {
                                 if started_at.elapsed() > Duration::from_millis(800) {
-                                    session.animation = AnimationPhase::Idle;
                                     break;
                                 }
                                 terminal.draw(|frame| render::render(session, frame))?;
@@ -267,7 +266,8 @@ fn run_demo_loop(
                             }
                         }
 
-                        // Hold on summary -- wait for quit
+                        // Show completion summary screen
+                        session.animation = AnimationPhase::DemoComplete;
                         loop {
                             terminal.draw(|frame| render::render(session, frame))?;
                             if event::poll(Duration::from_millis(100))?
@@ -338,7 +338,7 @@ fn run_demo_loop(
                     session.animation = AnimationPhase::Idle;
                 }
             }
-            AnimationPhase::VictoryRipple { .. } => {
+            AnimationPhase::VictoryRipple { .. } | AnimationPhase::DemoComplete => {
                 // Handled separately after the main loop; should not reach here
             }
         }

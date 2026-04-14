@@ -115,6 +115,11 @@ fn render_scenario_list(session: &VerificationSession, frame: &mut Frame, area: 
 // ── Step panel ─────────────────────────────────────────────────────────────
 
 fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rect) {
+    if matches!(session.animation, AnimationPhase::DemoComplete) {
+        render_demo_complete(session, frame, area);
+        return;
+    }
+
     let title = build_step_panel_title(session);
 
     let block = Block::default()
@@ -338,6 +343,90 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             )));
     }
+
+    let paragraph = Paragraph::new(lines);
+    frame.render_widget(paragraph, inner);
+}
+
+fn render_demo_complete(session: &VerificationSession, frame: &mut Frame, area: Rect) {
+    let block = Block::default()
+        .title(" SELFTEST COMPLETE ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    let version = env!("CARGO_PKG_VERSION");
+    lines.push(Line::from(
+        Span::from(format!("   wallop-verify {version} selftest")).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ));
+    lines.push(Line::from(""));
+
+    // Per-scenario results with heatmaps
+    for sc in &session.scenarios {
+        let (status_ch, color) = match sc.passed {
+            Some(true) => ("CAUGHT", Color::Green),
+            Some(false) => ("MISSED", Color::Red),
+            None => ("SKIP  ", Color::DarkGray),
+        };
+
+        let mut spans: Vec<Span> = vec![
+            Span::from("   ").style(Style::default()),
+            Span::from(status_ch).style(Style::default().fg(color)),
+            Span::from("  ").style(Style::default()),
+        ];
+
+        // Mini heatmap
+        for status in &sc.step_statuses {
+            let (ch, c) = match status {
+                StepStatus::Pass => ("▓", Color::Green),
+                StepStatus::Fail(_) => ("▓", Color::Red),
+                StepStatus::Skip(_) => ("░", Color::DarkGray),
+            };
+            spans.push(Span::from(ch).style(Style::default().fg(c)));
+        }
+
+        spans.push(Span::from(format!("  {}", sc.name)).style(Style::default().fg(Color::White)));
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+
+    // Summary
+    let passed = session
+        .scenarios
+        .iter()
+        .filter(|s| s.passed == Some(true))
+        .count();
+    let total = session.scenarios_total;
+    let all_passed = passed == total;
+
+    let summary_color = if all_passed { Color::Green } else { Color::Red };
+    let summary_text = if all_passed {
+        format!("   All {total} scenarios caught — verifier integrity confirmed")
+    } else {
+        let missed = total - passed;
+        format!("   {missed}/{total} scenarios missed — verifier has gaps")
+    };
+    lines.push(Line::from(
+        Span::from(summary_text).style(
+            Style::default()
+                .fg(summary_color)
+                .add_modifier(Modifier::BOLD),
+        ),
+    ));
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(
+        Span::from("   Press q to exit").style(Style::default().fg(Color::DarkGray)),
+    ));
 
     let paragraph = Paragraph::new(lines);
     frame.render_widget(paragraph, inner);

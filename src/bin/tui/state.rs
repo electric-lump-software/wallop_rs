@@ -46,6 +46,8 @@ pub enum AnimationPhase {
     VictoryRipple {
         started_at: Instant,
     },
+    /// Demo finished — show summary screen.
+    DemoComplete,
 }
 
 #[derive(Debug, Clone)]
