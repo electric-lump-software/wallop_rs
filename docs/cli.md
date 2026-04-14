@@ -120,13 +120,76 @@ Coverage check: 9/9 StepName variants covered at runtime
 
 Each scenario result is prefixed with `PASS:`, `FAIL:`, or `SKIP:` on its own line. This prefix is a stable CI contract — you can `grep '^FAIL:'` reliably.
 
+## Interactive TUI mode
+
+The TUI adds visual step-by-step inspection to both bundle verification and the selftest catalog. Requires the `tui` feature flag.
+
+### Installation
+
+```bash
+cargo install wallop_verifier --features tui
+```
+
+### Bundle verification
+
+```bash
+# Interactive step-through of a proof bundle
+wallop-verify --tui proof.json
+
+# Stdin does NOT work with --tui (the TUI needs a real TTY for keyboard input)
+# Save to a file first:
+curl -s https://wallop.run/proof/abc123.json > proof.json
+wallop-verify --tui proof.json
+```
+
+Advance through steps with **space**, or press **c** to reveal all remaining steps at once. Use **arrow keys** to navigate between revealed steps — failed steps auto-expand a byte-level diff showing expected vs computed values.
+
+The footer shows key-pin status: green for pinned and matching, yellow for unpinned, red for mismatch.
+
+Press **q** to quit.
+
+### Selftest scenario browser
+
+```bash
+wallop-verify selftest --tui
+```
+
+The left panel lists all tamper scenarios. The right panel shows step-by-step verification results for the selected scenario. The selected scenario shows a step heatmap underneath its name.
+
+| Key | Action |
+|---|---|
+| space | Reveal next step |
+| c | Reveal all remaining steps |
+| j / k | Switch between scenarios |
+| up / down | Navigate revealed steps |
+| q | Quit |
+
+### Demo mode
+
+```bash
+# Animated playback for presentations
+wallop-verify selftest --demo
+
+# Record to asciicast for embedding in docs
+wallop-verify selftest --demo --record demo.cast
+```
+
+Demo mode runs through all scenarios automatically with animations: a braille ripple on the dots while computing, a character scramble on the PASS/FAIL status text as it resolves, and a completion screen summarising all results. Press **q** at any time to exit.
+
 ## Feature flag
 
 All CLI functionality is gated behind the `cli` Cargo feature:
 
 ```toml
 [dependencies]
-wallop_verifier = { version = "0.5", features = ["cli"] }
+wallop_verifier = { version = "0.6", features = ["cli"] }
 ```
 
-Without the feature, the crate compiles as a library only — no binary target, no clap/drand-verify dependencies, no catalog code. WASM builds are unaffected.
+Two feature flags are available:
+
+| Feature | Includes | Install command |
+|---|---|---|
+| `cli` | Plain CLI: verify, selftest, pin-key | `cargo install wallop_verifier --features cli` |
+| `tui` | Everything in `cli` + interactive TUI, demo mode, asciicast export | `cargo install wallop_verifier --features tui` |
+
+Without either feature, the crate compiles as a library only — no binary target, no clap/ratatui/drand-verify dependencies. WASM builds are unaffected.
