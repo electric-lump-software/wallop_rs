@@ -36,9 +36,7 @@ impl TeeWriter {
                     .duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs();
-                let header = format!(
-                    r#"{{"version":2,"width":80,"height":24,"timestamp":{ts}}}"#
-                );
+                let header = format!(r#"{{"version":2,"width":80,"height":24,"timestamp":{ts}}}"#);
                 use io::Write;
                 writeln!(file, "{header}")?;
                 Some(Recording {
@@ -59,8 +57,7 @@ impl io::Write for TeeWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         if let Some(ref mut rec) = self.recording {
             let elapsed = rec.start.elapsed().as_secs_f64();
-            let escaped =
-                serde_json::to_string(&String::from_utf8_lossy(buf)).unwrap_or_default();
+            let escaped = serde_json::to_string(&String::from_utf8_lossy(buf)).unwrap_or_default();
             writeln!(rec.file, "[{elapsed:.6}, \"o\", {escaped}]").ok();
         }
         self.inner.write(buf)
@@ -227,10 +224,7 @@ fn run_demo_loop(
                         && session.scenarios[scenario_idx].passed.is_none()
                     {
                         let has_fail = session.steps.iter().any(|s| {
-                            matches!(
-                                s.status,
-                                wallop_verifier::verify_steps::StepStatus::Fail(_)
-                            )
+                            matches!(s.status, wallop_verifier::verify_steps::StepStatus::Fail(_))
                         });
                         session.scenarios[scenario_idx].passed = Some(!has_fail);
                         session.scenarios[scenario_idx].step_statuses =
@@ -247,10 +241,7 @@ fn run_demo_loop(
                     scenario_idx += 1;
                     if scenario_idx >= total_scenarios {
                         // Check if all scenarios passed for victory animation
-                        let all_passed = session
-                            .scenarios
-                            .iter()
-                            .all(|s| s.passed == Some(true));
+                        let all_passed = session.scenarios.iter().all(|s| s.passed == Some(true));
 
                         if all_passed {
                             // Victory ripple: brief green pulse on RESULT text
@@ -264,13 +255,11 @@ fn run_demo_loop(
                                     session.animation = AnimationPhase::Idle;
                                     break;
                                 }
-                                terminal
-                                    .draw(|frame| render::render(session, frame))?;
+                                terminal.draw(|frame| render::render(session, frame))?;
                                 if event::poll(Duration::from_millis(30))?
                                     && let Event::Key(key_event) = event::read()?
                                     && (key_event.code == KeyCode::Char('q')
-                                        || (key_event.modifiers
-                                            .contains(KeyModifiers::CONTROL)
+                                        || (key_event.modifiers.contains(KeyModifiers::CONTROL)
                                             && key_event.code == KeyCode::Char('c')))
                                 {
                                     return Ok(());
@@ -323,7 +312,9 @@ fn run_demo_loop(
                     }
                 }
             }
-            AnimationPhase::Scrambling { step, started_at, .. } => {
+            AnimationPhase::Scrambling {
+                step, started_at, ..
+            } => {
                 if started_at.elapsed() > DEMO_SCRAMBLE_DURATION {
                     session.advance();
                     sync_scenario_heatmap(session, scenario_idx);

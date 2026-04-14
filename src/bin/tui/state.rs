@@ -29,11 +29,23 @@ pub enum PinState {
 #[derive(Debug, Clone)]
 pub enum AnimationPhase {
     Idle,
-    Spinning { step: usize, started_at: Instant },
+    Spinning {
+        step: usize,
+        started_at: Instant,
+    },
     #[allow(dead_code)]
-    Scrambling { step: usize, started_at: Instant, target_hex: String },
-    Settled { step: usize, started_at: Instant },
-    VictoryRipple { started_at: Instant },
+    Scrambling {
+        step: usize,
+        started_at: Instant,
+        target_hex: String,
+    },
+    Settled {
+        step: usize,
+        started_at: Instant,
+    },
+    VictoryRipple {
+        started_at: Instant,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -547,8 +559,10 @@ mod tests {
             },
         ];
         let mut session = VerificationSession::new_selftest(all_pass_report(), scenarios);
-        session.animation =
-            AnimationPhase::Spinning { step: 0, started_at: std::time::Instant::now() };
+        session.animation = AnimationPhase::Spinning {
+            step: 0,
+            started_at: std::time::Instant::now(),
+        };
         session.next_scenario();
         assert!(matches!(session.animation, AnimationPhase::Idle));
     }

@@ -69,9 +69,7 @@ fn render_scenario_list(session: &VerificationSession, frame: &mut Frame, area: 
             let name_line = Line::from(Span::from(text).style(Style::default().fg(row_color)));
             let mut item_lines = vec![name_line];
             if is_selected && !sc.step_statuses.is_empty() {
-                let mut hm_spans: Vec<Span> = vec![
-                    Span::from("      ").style(Style::default()),
-                ];
+                let mut hm_spans: Vec<Span> = vec![Span::from("      ").style(Style::default())];
                 for status in &sc.step_statuses {
                     let (ch, color) = match status {
                         StepStatus::Pass => ("▓", Color::Green),
@@ -225,18 +223,22 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
                     let dot_color = Color::Rgb(70, 70, 70);
                     for ci in 0..wave_count {
                         // Distance from wave centre
-                        let dist = ci as isize - (wave_pos % (wave_count as isize + ripple_len as isize));
+                        let dist =
+                            ci as isize - (wave_pos % (wave_count as isize + ripple_len as isize));
                         if dist >= 0 && (dist as usize) < ripple_len {
                             let ch = RIPPLE[dist as usize];
-                            let brightness: u8 = if dist == 3 { 120 } else if dist == 2 || dist == 4 { 100 } else { 80 };
-                            wave_spans.push(
-                                Span::from(ch.to_string())
-                                    .style(Style::default().fg(Color::Rgb(brightness, brightness, brightness))),
-                            );
+                            let brightness: u8 = if dist == 3 {
+                                120
+                            } else if dist == 2 || dist == 4 {
+                                100
+                            } else {
+                                80
+                            };
+                            wave_spans.push(Span::from(ch.to_string()).style(
+                                Style::default().fg(Color::Rgb(brightness, brightness, brightness)),
+                            ));
                         } else {
-                            wave_spans.push(
-                                Span::from("·").style(Style::default().fg(dot_color)),
-                            );
+                            wave_spans.push(Span::from("·").style(Style::default().fg(dot_color)));
                         }
                     }
 
@@ -258,8 +260,7 @@ fn render_step_panel(session: &VerificationSession, frame: &mut Frame, area: Rec
                     let status_chars: Vec<char> = status_label.chars().collect();
                     let total = status_chars.len(); // always 4
                     let elapsed_frac = (elapsed_ms as f64) / 300.0;
-                    let settled_count =
-                        ((elapsed_frac * total as f64) as usize).min(total);
+                    let settled_count = ((elapsed_frac * total as f64) as usize).min(total);
 
                     // Normal dots (no pulse)
                     let available = inner.width as usize;
