@@ -56,7 +56,8 @@ fn render_scenario_list(session: &VerificationSession, frame: &mut Frame, area: 
         .iter()
         .enumerate()
         .map(|(i, sc)| {
-            let is_selected = i == session.selected_scenario;
+            let is_selected = i == session.selected_scenario
+                && !matches!(session.animation, AnimationPhase::DemoComplete);
             let marker = if is_selected { "▶ " } else { "  " };
 
             let (prefix, color) = match sc.passed {
