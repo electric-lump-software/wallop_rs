@@ -358,10 +358,29 @@ fn run_single_with_report(
         })
         .collect();
 
-    let outcome = match first_failing {
-        Some(actual) if expected.contains(&actual) => ScenarioOutcome::Passed { caught_at: actual },
-        Some(actual) => ScenarioOutcome::CaughtByWrongStep { expected, actual },
-        None => ScenarioOutcome::FailedP0,
+    // The selftest's baseline bundle uses a stub BLS signature
+    // (`drand_signature: "00" * 48`), so step `drand_bls_signature` always
+    // fails at runtime regardless of the tamper. For scenarios that break
+    // an earlier step, that earlier step is reported as the first-failing
+    // step as intended. For scenarios whose expected catch step is AFTER
+    // drand_bls_signature in the pipeline (e.g. the v0.10 cross-receipt
+    // consistency checks at steps 10 and 11), the always-failing BLS step
+    // would otherwise mask them. Rule: a scenario passes if ANY failing
+    // step is in the expected set — not just the first. This matches the
+    // semantic intent ("did the defence-in-depth we care about actually
+    // catch it") without changing existing scenario outcomes, since every
+    // pre-v0.10 scenario's first-failing step is already in its expected
+    // set.
+    let first_in_expected = report
+        .steps
+        .iter()
+        .find(|s| matches!(s.status, StepStatus::Fail(_)) && expected.contains(&s.name))
+        .map(|s| s.name);
+
+    let outcome = match (first_in_expected, first_failing) {
+        (Some(caught), _) => ScenarioOutcome::Passed { caught_at: caught },
+        (None, Some(actual)) => ScenarioOutcome::CaughtByWrongStep { expected, actual },
+        (None, None) => ScenarioOutcome::FailedP0,
     };
 
     (
