@@ -5,6 +5,63 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - unreleased
+
+### Added
+
+Two new verification steps closing the receipt-splice attack class per
+the matching `wallop` spec update at §4.2.5.
+
+- **Step 10: Receipt field consistency.** Every field duplicated across
+  the lock and execution receipts MUST be byte-identical. Fields
+  checked: `draw_id`, `operator_id`, `sequence`, `drand_chain`,
+  `drand_round`, `weather_station`. Bundle envelope `draw_id` also
+  cross-checked. `signing_key_id` deliberately NOT checked (different
+  keys by design — operator vs infra). `operator_slug` NOT checked
+  (derivative of `operator_id`). Algorithm identity tags NOT
+  cross-checked (already validated per-receipt).
+- **Step 11: Weather observation window.** Execution receipt's
+  `weather_observation_time` MUST fall in the closed interval
+  `[lock.weather_time, lock.weather_time + 3600s]`. Prevents an
+  infrastructure-level attacker from fetching weather from any point
+  in time and attributing it to the draw's declared window.
+
+Both steps are appended — pre-existing StepName ordinals (1–9) are
+unchanged so external consumers pinning step numbers are not broken.
+
+### Added — selftest catalog
+
+Seven new tamper scenarios under `cross_receipt_binding`:
+- `splice_exec_draw_id_mismatch`
+- `splice_exec_sequence_mismatch`
+- `splice_exec_operator_id_mismatch`
+- `splice_exec_drand_chain_mismatch`
+- `splice_exec_drand_round_mismatch`
+- `splice_exec_weather_station_mismatch`
+- `weather_window_violation_future`
+
+### Changed
+
+The catalog runner now records a scenario as `Passed` if ANY failing
+step is in the scenario's `expected_catch_steps` list, not just the
+first failing step. The previous "first-failing" rule worked for
+pre-v0.10 scenarios because their expected step was the first step
+they broke, but it interacted poorly with the selftest's stub BLS
+signature (`drand_signature: "00" * 48`) which always fails step 9
+at runtime. With the new rule, scenarios whose expected catch step
+runs after step 9 are reported correctly. No existing scenario
+outcomes change — every pre-v0.10 scenario's first-failing step is
+already in its expected set.
+
+### Compatibility
+
+- No wire-format change. No schema bump. No frozen-vector change.
+- v0.9.x bundles verify identically under 0.10 modulo the two new
+  steps, which pass cleanly on any bundle produced by a conformant
+  `wallop_core` 0.17.x producer.
+- Third-party consumers pinning `StepName::*` ordinals are unaffected
+  (pre-existing variants stay at positions 1–9).
+
 ## [0.9.0] - unreleased
 
 ### Added

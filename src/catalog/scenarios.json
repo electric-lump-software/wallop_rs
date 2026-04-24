@@ -140,6 +140,118 @@
         }
       },
       "expected_catch_steps": ["exec_receipt_entry_hash"]
+    },
+    {
+      "name": "splice_exec_draw_id_mismatch",
+      "category": "cross_receipt_binding",
+      "description": "Infra-level attacker signs an exec receipt declaring a different draw_id from the lock receipt, linking a valid lock_receipt_hash. Exec signature is valid under infra key; every existing step passes; the cross-receipt field consistency check catches the mismatch.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "draw_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+        }
+      },
+      "expected_catch_steps": ["receipt_field_consistency"]
+    },
+    {
+      "name": "splice_exec_sequence_mismatch",
+      "category": "cross_receipt_binding",
+      "description": "Exec receipt declares a different sequence number from the lock receipt. Observer trusting exec.sequence for operator-log indexing is fooled without this check.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "sequence": 99999
+        }
+      },
+      "expected_catch_steps": ["receipt_field_consistency"]
+    },
+    {
+      "name": "splice_exec_operator_id_mismatch",
+      "category": "cross_receipt_binding",
+      "description": "Exec receipt declares a different operator_id from the lock receipt. Operator-activity indexers attributing receipts are fooled without this check.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "operator_id": "99999999-9999-4999-8999-999999999999"
+        }
+      },
+      "expected_catch_steps": ["receipt_field_consistency"]
+    },
+    {
+      "name": "splice_exec_drand_chain_mismatch",
+      "category": "cross_receipt_binding",
+      "description": "Exec receipt declares a different drand chain hash from the lock receipt. Observer trusting exec.drand_chain for provenance is fooled without this check.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "drand_chain": "0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "expected_catch_steps": ["receipt_field_consistency"]
+    },
+    {
+      "name": "splice_exec_drand_round_mismatch",
+      "category": "cross_receipt_binding",
+      "description": "Exec receipt declares a different drand round number from the lock receipt. Observer trusting exec.drand_round for entropy timing is fooled without this check.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "drand_round": 99999999
+        }
+      },
+      "expected_catch_steps": ["receipt_field_consistency"]
+    },
+    {
+      "name": "splice_exec_weather_station_mismatch",
+      "category": "cross_receipt_binding",
+      "description": "Exec receipt declares a different weather station from the lock receipt. Observer trusting exec.weather_station for entropy source identity is fooled without this check.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "weather_station": "somewhere-else"
+        }
+      },
+      "expected_catch_steps": ["receipt_field_consistency"]
+    },
+    {
+      "name": "weather_window_violation_future",
+      "category": "cross_receipt_binding",
+      "description": "Exec receipt declares a weather_observation_time more than 1 hour after the lock receipt's weather_time. Without the window check, an infra-level attacker can fetch weather from any point in time and attribute it to the draw's declared window.",
+      "severity": "critical",
+      "tamper": {
+        "kind": "semantic_op",
+        "op": "modify_payload_and_resign",
+        "target": "execution_receipt",
+        "keypair": "original_signer",
+        "modifications": {
+          "weather_observation_time": "2099-04-09T12:00:00.000000Z"
+        }
+      },
+      "expected_catch_steps": ["weather_observation_window"]
     }
   ]
 }

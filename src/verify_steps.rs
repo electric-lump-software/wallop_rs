@@ -26,6 +26,17 @@ pub enum StepName {
     SeedRecomputation,
     WinnerSelection,
     DrandBlsSignature,
+    /// Cross-receipt field consistency — every field appearing in both the
+    /// lock and execution receipts MUST be byte-identical. Bundle-envelope
+    /// `draw_id` MUST also match. Closes splice-attack class per spec
+    /// §4.2.5. Appended rather than inserted mid-list so external
+    /// consumers pinning step ordinals are not broken.
+    ReceiptFieldConsistency,
+    /// Weather observation window — execution receipt's
+    /// `weather_observation_time` MUST fall in
+    /// `[lock.weather_time, lock.weather_time + 3600s]`.
+    /// Closes the weather-time splice vector per spec §4.2.5.
+    WeatherObservationWindow,
 }
 
 impl StepName {
@@ -42,6 +53,8 @@ impl StepName {
             StepName::SeedRecomputation,
             StepName::WinnerSelection,
             StepName::DrandBlsSignature,
+            StepName::ReceiptFieldConsistency,
+            StepName::WeatherObservationWindow,
         ]
     }
 }
@@ -58,6 +71,8 @@ impl fmt::Display for StepName {
             StepName::SeedRecomputation => "Seed recomputation",
             StepName::WinnerSelection => "Winner selection",
             StepName::DrandBlsSignature => "Drand BLS signature",
+            StepName::ReceiptFieldConsistency => "Receipt field consistency",
+            StepName::WeatherObservationWindow => "Weather observation window",
         };
         f.write_str(s)
     }
@@ -430,10 +445,298 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
         });
     }
 
+    // === Step 10: Cross-receipt field consistency ===
+    //
+    // Every field duplicated across the lock and execution receipts MUST be
+    // byte-identical. Without this, an infrastructure-level attacker signing
+    // a fraudulent exec receipt can pair it with a legitimate lock from a
+    // different draw — `lock_receipt_hash` binds lock bytes INTO the exec
+    // but does not bind the exec's own duplicated fields back to the lock.
+    //
+    // Fields checked (spec §4.2.5): draw_id, operator_id, sequence,
+    // drand_chain, drand_round, weather_station. Bundle envelope draw_id
+    // also cross-checked. signing_key_id deliberately NOT checked (lock =
+    // operator key, exec = infra key; different by design). operator_slug
+    // NOT checked (derivative of operator_id). Algorithm identity tags NOT
+    // cross-checked (validated per-receipt against pinned values already).
+    steps.push(check_receipt_field_consistency(bundle));
+
+    // === Step 11: Weather observation window ===
+    //
+    // exec.weather_observation_time MUST fall in
+    // [lock.weather_time, lock.weather_time + 3600s]. Prevents an
+    // infrastructure-level attacker from fetching weather from any point
+    // in time and attributing it to the draw's declared window.
+    steps.push(check_weather_observation_window(bundle));
+
     VerificationReport {
         steps,
         operator_key_id,
         infra_key_id,
+    }
+}
+
+// Fields that MUST be byte-identical between lock and exec receipts per
+// spec §4.2.5. draw_id is also cross-checked against the bundle envelope.
+const CROSS_CHECKED_FIELDS: &[&str] = &[
+    "draw_id",
+    "operator_id",
+    "sequence",
+    "drand_chain",
+    "drand_round",
+    "weather_station",
+];
+
+fn check_receipt_field_consistency(bundle: &ProofBundle) -> StepResult {
+    let lock: serde_json::Value = match serde_json::from_str(&bundle.lock_receipt.payload_jcs) {
+        Ok(v) => v,
+        Err(e) => {
+            return StepResult {
+                name: StepName::ReceiptFieldConsistency,
+                status: StepStatus::Fail(format!("invalid lock receipt JSON: {}", e)),
+                detail: None,
+            };
+        }
+    };
+
+    let exec: serde_json::Value = match serde_json::from_str(&bundle.execution_receipt.payload_jcs)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            return StepResult {
+                name: StepName::ReceiptFieldConsistency,
+                status: StepStatus::Fail(format!("invalid exec receipt JSON: {}", e)),
+                detail: None,
+            };
+        }
+    };
+
+    // Bundle envelope cross-check: envelope.draw_id == lock.draw_id.
+    // Transitively envelope == exec too, because the field loop below
+    // asserts lock.draw_id == exec.draw_id.
+    let envelope_draw_id = bundle.draw_id.as_str();
+    let lock_draw_id = lock.get("draw_id").and_then(|v| v.as_str()).unwrap_or("");
+
+    if envelope_draw_id != lock_draw_id {
+        return StepResult {
+            name: StepName::ReceiptFieldConsistency,
+            status: StepStatus::Fail(format!(
+                "draw_id mismatch: bundle envelope ({}) vs lock receipt ({})",
+                envelope_draw_id, lock_draw_id
+            )),
+            detail: None,
+        };
+    }
+
+    // Every cross-checked field must match byte-identically.
+    for field in CROSS_CHECKED_FIELDS {
+        let lock_val = lock.get(field);
+        let exec_val = exec.get(field);
+        if lock_val != exec_val {
+            return StepResult {
+                name: StepName::ReceiptFieldConsistency,
+                status: StepStatus::Fail(format!(
+                    "receipt field mismatch: {} differs between lock ({:?}) and exec ({:?})",
+                    field, lock_val, exec_val
+                )),
+                detail: None,
+            };
+        }
+    }
+
+    StepResult {
+        name: StepName::ReceiptFieldConsistency,
+        status: StepStatus::Pass,
+        detail: None,
+    }
+}
+
+fn check_weather_observation_window(bundle: &ProofBundle) -> StepResult {
+    let lock: serde_json::Value = match serde_json::from_str(&bundle.lock_receipt.payload_jcs) {
+        Ok(v) => v,
+        Err(e) => {
+            return StepResult {
+                name: StepName::WeatherObservationWindow,
+                status: StepStatus::Fail(format!("invalid lock receipt JSON: {}", e)),
+                detail: None,
+            };
+        }
+    };
+
+    let exec: serde_json::Value = match serde_json::from_str(&bundle.execution_receipt.payload_jcs)
+    {
+        Ok(v) => v,
+        Err(e) => {
+            return StepResult {
+                name: StepName::WeatherObservationWindow,
+                status: StepStatus::Fail(format!("invalid exec receipt JSON: {}", e)),
+                detail: None,
+            };
+        }
+    };
+
+    // Both fields may be absent on drand-only bundles. In that case the
+    // window check is vacuous (there is no observation to window-bound);
+    // pass.
+    let lock_weather_time = match lock.get("weather_time").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => {
+            return StepResult {
+                name: StepName::WeatherObservationWindow,
+                status: StepStatus::Skip("lock receipt has no weather_time".into()),
+                detail: None,
+            };
+        }
+    };
+
+    let exec_observation_time = match exec
+        .get("weather_observation_time")
+        .and_then(|v| v.as_str())
+    {
+        Some(s) => s,
+        None => {
+            return StepResult {
+                name: StepName::WeatherObservationWindow,
+                status: StepStatus::Skip("exec receipt has no weather_observation_time".into()),
+                detail: None,
+            };
+        }
+    };
+
+    let parsed_lock = match chrono_parse_canonical(lock_weather_time) {
+        Ok(t) => t,
+        Err(e) => {
+            return StepResult {
+                name: StepName::WeatherObservationWindow,
+                status: StepStatus::Fail(format!(
+                    "unparseable lock.weather_time ({}): {}",
+                    lock_weather_time, e
+                )),
+                detail: None,
+            };
+        }
+    };
+
+    let parsed_exec = match chrono_parse_canonical(exec_observation_time) {
+        Ok(t) => t,
+        Err(e) => {
+            return StepResult {
+                name: StepName::WeatherObservationWindow,
+                status: StepStatus::Fail(format!(
+                    "unparseable exec.weather_observation_time ({}): {}",
+                    exec_observation_time, e
+                )),
+                detail: None,
+            };
+        }
+    };
+
+    let delta = parsed_exec.timestamp() - parsed_lock.timestamp();
+    if !(0..=3600).contains(&delta) {
+        return StepResult {
+            name: StepName::WeatherObservationWindow,
+            status: StepStatus::Fail(format!(
+                "weather_observation_time outside [lock.weather_time, lock.weather_time + 3600s]: \
+                 delta = {}s (lock.weather_time = {}, exec.weather_observation_time = {})",
+                delta, lock_weather_time, exec_observation_time
+            )),
+            detail: None,
+        };
+    }
+
+    StepResult {
+        name: StepName::WeatherObservationWindow,
+        status: StepStatus::Pass,
+        detail: None,
+    }
+}
+
+// Parses the canonical RFC 3339 timestamp form pinned in spec §4.2.1
+// (`YYYY-MM-DDTHH:MM:SS.ffffffZ`, exactly 6 fractional digits, Z suffix).
+// Produces a unix-second timestamp. This is a narrow parser, not a
+// general-purpose RFC 3339 parser — the spec §4.2.1 note explicitly
+// warns against general-purpose parsers that accept variable fractional
+// digit counts or +00:00 offsets.
+fn chrono_parse_canonical(s: &str) -> Result<ChronoStub, String> {
+    // Manual check matching spec §4.2.1 regex
+    // `\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z\z`. No regex dep
+    // needed — the positions are fixed.
+    let b = s.as_bytes();
+    if b.len() != 27 {
+        return Err("does not match canonical RFC 3339 form (§4.2.1): wrong length".into());
+    }
+    let digits = |pos: usize, n: usize| -> Result<(), String> {
+        for (offset, byte) in b[pos..pos + n].iter().enumerate() {
+            if !byte.is_ascii_digit() {
+                return Err(format!(
+                    "does not match canonical RFC 3339 form (§4.2.1): non-digit at pos {}",
+                    pos + offset
+                ));
+            }
+        }
+        Ok(())
+    };
+    let lit = |pos: usize, ch: u8| -> Result<(), String> {
+        if b[pos] != ch {
+            return Err(format!(
+                "does not match canonical RFC 3339 form (§4.2.1): expected {:?} at pos {}",
+                ch as char, pos
+            ));
+        }
+        Ok(())
+    };
+    digits(0, 4)?; // YYYY
+    lit(4, b'-')?;
+    digits(5, 2)?; // MM
+    lit(7, b'-')?;
+    digits(8, 2)?; // DD
+    lit(10, b'T')?;
+    digits(11, 2)?; // HH
+    lit(13, b':')?;
+    digits(14, 2)?; // MM
+    lit(16, b':')?;
+    digits(17, 2)?; // SS
+    lit(19, b'.')?;
+    digits(20, 6)?; // microseconds
+    lit(26, b'Z')?;
+
+    let parse_slice = |start: usize, end: usize| -> Result<i64, String> {
+        s[start..end]
+            .parse()
+            .map_err(|e: std::num::ParseIntError| e.to_string())
+    };
+    let y = parse_slice(0, 4)?;
+    let mo = parse_slice(5, 7)?;
+    let d = parse_slice(8, 10)?;
+    let h = parse_slice(11, 13)?;
+    let mi = parse_slice(14, 16)?;
+    let se = parse_slice(17, 19)?;
+
+    // Days-from-epoch via Rata Die (civil-from-days). The weather window
+    // is 3600 seconds — we only need second-precision unix time for the
+    // subtraction; we discard fractional microseconds.
+    //
+    // https://howardhinnant.github.io/date_algorithms.html#days_from_civil
+    let y_adj = if mo <= 2 { y - 1 } else { y };
+    let era = if y_adj >= 0 { y_adj } else { y_adj - 399 } / 400;
+    let yoe = y_adj - era * 400;
+    let mo_shift = if mo > 2 { mo - 3 } else { mo + 9 };
+    let doy = (153 * mo_shift + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days_from_epoch = era * 146_097 + doe - 719_468;
+
+    Ok(ChronoStub {
+        secs: days_from_epoch * 86_400 + h * 3600 + mi * 60 + se,
+    })
+}
+
+struct ChronoStub {
+    secs: i64,
+}
+
+impl ChronoStub {
+    fn timestamp(&self) -> i64 {
+        self.secs
     }
 }
 
@@ -849,9 +1152,15 @@ mod tests {
     #[test]
     fn step_name_all_returns_every_variant() {
         let all = StepName::all();
-        assert_eq!(all.len(), 9, "all() should return all 9 StepName variants");
+        assert_eq!(
+            all.len(),
+            11,
+            "all() should return all 11 StepName variants"
+        );
         assert!(all.contains(&StepName::EntryHash));
         assert!(all.contains(&StepName::DrandBlsSignature));
+        assert!(all.contains(&StepName::ReceiptFieldConsistency));
+        assert!(all.contains(&StepName::WeatherObservationWindow));
     }
 
     #[test]
