@@ -484,6 +484,15 @@ pub fn validate_execution_receipt_tags_v3(payload: &ExecutionReceiptV3) -> Resul
     Ok(())
 }
 
+/// Maximum length (in bytes) of a `weather_station` identifier.
+///
+/// Defence-in-depth against DoS via pathologically long station names in
+/// otherwise-valid bundles. The producer side currently uses a single
+/// hardcoded value (`"middle-wallop"`, 13 bytes); 64 leaves comfortable
+/// headroom for plausible future stations while keeping memory bounded.
+/// Producer-side enforcement of the same cap is a follow-up.
+pub const WEATHER_STATION_MAX_LEN: usize = 64;
+
 /// Validate `weather_station` against the spec §4.2.1 charset rule.
 ///
 /// MUST match `^[a-z][a-z0-9-]*$` — lowercase ASCII letters, digits, and
@@ -491,24 +500,30 @@ pub fn validate_execution_receipt_tags_v3(payload: &ExecutionReceiptV3) -> Resul
 /// arbitrary strings into a signed payload and break cross-language
 /// canonicalisation parity. The charset matches the producer-side rule
 /// in wallop_core's weather station registry.
+///
+/// Length-capped at `WEATHER_STATION_MAX_LEN` bytes for verifier
+/// defence-in-depth (Colin round-2 review).
 pub fn validate_weather_station(station: &str) -> Result<(), String> {
     if station.is_empty() {
         return Err("weather_station is empty".into());
+    }
+    if station.len() > WEATHER_STATION_MAX_LEN {
+        return Err(format!(
+            "weather_station exceeds {} bytes",
+            WEATHER_STATION_MAX_LEN
+        ));
     }
     let mut chars = station.chars();
     let first = chars.next().unwrap();
     if !first.is_ascii_lowercase() {
         return Err(format!(
-            "weather_station must start with [a-z], got: {}",
+            "weather_station must start with [a-z], got: {:?}",
             station
         ));
     }
     for c in chars {
         if !(c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
-            return Err(format!(
-                "weather_station has invalid character {:?} in: {}",
-                c, station
-            ));
+            return Err(format!("weather_station has invalid character {:?}", c));
         }
     }
     Ok(())

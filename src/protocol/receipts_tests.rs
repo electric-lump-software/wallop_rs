@@ -701,6 +701,20 @@ fn validate_weather_station_rejects_empty() {
     assert!(validate_weather_station("").is_err());
 }
 
+#[test]
+fn validate_weather_station_rejects_over_max_length() {
+    let too_long = "a".repeat(WEATHER_STATION_MAX_LEN + 1);
+    let result = validate_weather_station(&too_long);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().contains("exceeds"));
+}
+
+#[test]
+fn validate_weather_station_accepts_at_max_length() {
+    let at_max = "a".repeat(WEATHER_STATION_MAX_LEN);
+    assert!(validate_weather_station(&at_max).is_ok());
+}
+
 // ── A3: weather_station validation flows through tag validators ────────
 
 #[test]
