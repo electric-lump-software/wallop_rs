@@ -524,7 +524,9 @@ fn pin_span(label: &str, state: &PinState, bg: Color) -> Span<'static> {
 mod tests {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
-    use wallop_verifier::verify_steps::{StepName, StepResult, StepStatus, VerificationReport};
+    use wallop_verifier::verify_steps::{
+        StepName, StepResult, StepStatus, VerificationReport, VerifierMode,
+    };
 
     use super::super::state::{Mode, PinState, ScenarioEntry, VerificationSession};
 
@@ -543,6 +545,7 @@ mod tests {
             steps,
             operator_key_id: None,
             infra_key_id: None,
+            mode: VerifierMode::SelfConsistencyOnly,
         }
     }
 
@@ -567,7 +570,7 @@ mod tests {
     #[test]
     fn bundle_verify_shows_pending_steps() {
         // New session with 0 revealed — all steps should show the "···" pending marker.
-        let report = make_test_report(vec![StepStatus::Pass; 11]);
+        let report = make_test_report(vec![StepStatus::Pass; 12]);
         let session =
             VerificationSession::new_bundle_verify(report, PinState::Unpinned, PinState::Unpinned);
         let output = render_to_string(&session, 80, 15);
@@ -580,7 +583,7 @@ mod tests {
     #[test]
     fn bundle_verify_shows_pass_after_advance() {
         // After advancing once, the revealed step should show "PASS" and the cursor "▶".
-        let report = make_test_report(vec![StepStatus::Pass; 11]);
+        let report = make_test_report(vec![StepStatus::Pass; 12]);
         let mut session =
             VerificationSession::new_bundle_verify(report, PinState::Unpinned, PinState::Unpinned);
         session.advance();
@@ -598,7 +601,7 @@ mod tests {
     #[test]
     fn footer_shows_pin_states() {
         // Pinned operator + Unpinned infra should show both "pinned" and "unpinned".
-        let report = make_test_report(vec![StepStatus::Pass; 11]);
+        let report = make_test_report(vec![StepStatus::Pass; 12]);
         let session = VerificationSession::new_bundle_verify(
             report,
             PinState::Pinned {
@@ -620,7 +623,7 @@ mod tests {
     #[test]
     fn selftest_footer_shows_test_pins() {
         // Selftest sessions use PinState::Test — footer should show "test ·".
-        let report = make_test_report(vec![StepStatus::Pass; 11]);
+        let report = make_test_report(vec![StepStatus::Pass; 12]);
         let scenarios = vec![ScenarioEntry {
             name: "Scenario A".to_string(),
             description: "A test scenario".to_string(),
@@ -644,7 +647,7 @@ mod tests {
     #[test]
     fn demo_mode_hides_keyboard_hints() {
         // In Demo mode the keyboard hint line ("[space]", "[c]", "[q]") must not appear.
-        let report = make_test_report(vec![StepStatus::Pass; 11]);
+        let report = make_test_report(vec![StepStatus::Pass; 12]);
         let mut session =
             VerificationSession::new_bundle_verify(report, PinState::Unpinned, PinState::Unpinned);
         session.mode = Mode::Demo;
