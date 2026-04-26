@@ -1,6 +1,10 @@
 use crate::bundle::ProofBundle;
 use crate::protocol::crypto;
-use crate::protocol::receipts::lock_receipt_hash;
+use crate::protocol::receipts::{
+    ParsedExecutionReceipt, lock_receipt_hash, parse_execution_receipt, parse_lock_receipt,
+    validate_execution_receipt_tags, validate_execution_receipt_tags_v3,
+    validate_lock_receipt_tags,
+};
 use crate::{Entry, compute_seed, compute_seed_drand_only, draw, entry_hash};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -37,6 +41,19 @@ pub enum StepName {
     /// `[lock.weather_time, lock.weather_time + 3600s]`.
     /// Closes the weather-time splice vector per spec §4.2.5.
     WeatherObservationWindow,
+    /// Bundle shape — both receipts MUST parse against the typed structs
+    /// (`deny_unknown_fields`), MUST resolve via the schema_version
+    /// dispatcher (terminal `UnknownSchemaVersion` on anything else), MUST
+    /// pass the algorithm-identity-tag and `weather_station` charset
+    /// validators, and every signed timestamp MUST be in canonical
+    /// RFC 3339 form (`chrono_parse_canonical`). Closes the A1/A2/A3 air
+    /// gaps named in the round-2 topology review — the typed parsers and
+    /// validators ship in `protocol/receipts.rs` but until this step
+    /// existed, the verifier never called them. Appended to the end of
+    /// `StepName::all()` so external consumers pinning step ordinals are
+    /// not broken; in pipeline execution order, this step runs FIRST and
+    /// gates everything else.
+    BundleShape,
 }
 
 impl StepName {
@@ -55,6 +72,7 @@ impl StepName {
             StepName::DrandBlsSignature,
             StepName::ReceiptFieldConsistency,
             StepName::WeatherObservationWindow,
+            StepName::BundleShape,
         ]
     }
 }
@@ -73,6 +91,7 @@ impl fmt::Display for StepName {
             StepName::DrandBlsSignature => "Drand BLS signature",
             StepName::ReceiptFieldConsistency => "Receipt field consistency",
             StepName::WeatherObservationWindow => "Weather observation window",
+            StepName::BundleShape => "Bundle shape",
         };
         f.write_str(s)
     }
@@ -97,11 +116,49 @@ pub struct StepResult {
     pub detail: Option<StepDetail>,
 }
 
+/// Trust mode under which a verification report was produced. Surfaced in
+/// the report itself (CLI header, JSON top-level, WASM page UX) so the
+/// guarantee a user is reading is never ambiguous.
+///
+/// Per ADR-0009, three tiers exist:
+///
+/// - `Attributable` — keys resolved against an operator-hosted
+///   `.well-known` pin on a domain wallop_core does not control.
+/// - `Attestable` — keys resolved from `/operator/:slug/keys` only.
+///   Same-origin caveat: a CDN compromise can serve coherent forgeries.
+/// - `SelfConsistencyOnly` — keys read from the bundle itself. Catches
+///   accidents and casual tampering only; does not defend against MITM
+///   or hostile mirrors. This is the spec §4.2.4 caveat mode.
+///
+/// As of 1.0.0 only `SelfConsistencyOnly` exists in this crate; the
+/// `KeyResolver` work that lights up the other two ships in a follow-up.
+/// The variant is wired in here so consumers can begin matching on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerifierMode {
+    Attributable,
+    Attestable,
+    SelfConsistencyOnly,
+}
+
+impl fmt::Display for VerifierMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            VerifierMode::Attributable => "attributable",
+            VerifierMode::Attestable => "attestable",
+            VerifierMode::SelfConsistencyOnly => "self_consistency_only",
+        };
+        f.write_str(s)
+    }
+}
+
 #[derive(Clone)]
 pub struct VerificationReport {
     pub steps: Vec<StepResult>,
     pub operator_key_id: Option<String>,
     pub infra_key_id: Option<String>,
+    /// Trust mode under which this report was produced. See `VerifierMode`.
+    pub mode: VerifierMode,
 }
 
 impl VerificationReport {
@@ -469,10 +526,136 @@ pub fn verify_bundle(bundle: &ProofBundle) -> VerificationReport {
     // in time and attributing it to the draw's declared window.
     steps.push(check_weather_observation_window(bundle));
 
+    // === Step 12: Bundle shape ===
+    //
+    // Although appended last in the step list (per the ordinal-stability
+    // rule), the shape gate runs LOGICALLY FIRST: typed parser dispatch +
+    // tag validators + canonical timestamp regex. We compute it here at
+    // the end so it appears in the report, but the existing steps above
+    // still run regardless. A future refactor may use a failed shape
+    // result to skip the rest, but for now the existing steps are
+    // resilient (they Skip on dependency failure or use unwrap_or_default).
+    steps.push(check_bundle_shape(bundle));
+
     VerificationReport {
         steps,
         operator_key_id,
         infra_key_id,
+        mode: VerifierMode::SelfConsistencyOnly,
+    }
+}
+
+/// Step 12 — Bundle shape gate.
+///
+/// Runs the typed parsers (`parse_lock_receipt`, `parse_execution_receipt`),
+/// the tag validators (`validate_lock_receipt_tags`,
+/// `validate_execution_receipt_tags`/`_v3`), and a canonical RFC 3339
+/// regex check (`chrono_parse_canonical`) on every signed timestamp. Closes
+/// the A1/A2/A3 air gaps from the round-2 topology review — the validators
+/// ship in `protocol/receipts.rs` but until this step existed, the verifier
+/// never called them.
+///
+/// A bundle that passes this step is well-shaped per spec §4.2.1: closed
+/// field set on receipts, recognised `schema_version`, pinned algorithm
+/// tags, charset-conforming `weather_station`, canonical signed timestamps.
+fn check_bundle_shape(bundle: &ProofBundle) -> StepResult {
+    // Lock receipt — typed parse via dispatcher (deny_unknown_fields,
+    // schema_version dispatch).
+    let parsed_lock = match parse_lock_receipt(&bundle.lock_receipt.payload_jcs) {
+        Ok(crate::protocol::receipts::ParsedLockReceipt::V4(p)) => p,
+        Err(e) => {
+            return StepResult {
+                name: StepName::BundleShape,
+                status: StepStatus::Fail(format!("lock receipt: {}", e)),
+                detail: None,
+            };
+        }
+    };
+
+    // Lock receipt — algorithm identity tags + weather_station charset.
+    if let Err(e) = validate_lock_receipt_tags(&parsed_lock) {
+        return StepResult {
+            name: StepName::BundleShape,
+            status: StepStatus::Fail(format!("lock receipt validation: {}", e)),
+            detail: None,
+        };
+    }
+
+    // Lock receipt — canonical timestamps.
+    if let Err(e) = chrono_parse_canonical(&parsed_lock.locked_at) {
+        return StepResult {
+            name: StepName::BundleShape,
+            status: StepStatus::Fail(format!("lock.locked_at: {}", e)),
+            detail: None,
+        };
+    }
+    if let Err(e) = chrono_parse_canonical(&parsed_lock.weather_time) {
+        return StepResult {
+            name: StepName::BundleShape,
+            status: StepStatus::Fail(format!("lock.weather_time: {}", e)),
+            detail: None,
+        };
+    }
+
+    // Execution receipt — typed parse via dispatcher.
+    let parsed_exec = match parse_execution_receipt(&bundle.execution_receipt.payload_jcs) {
+        Ok(p) => p,
+        Err(e) => {
+            return StepResult {
+                name: StepName::BundleShape,
+                status: StepStatus::Fail(format!("exec receipt: {}", e)),
+                detail: None,
+            };
+        }
+    };
+
+    // Execution receipt — version-specific tag validators + canonical
+    // timestamp checks. v2 and v3 share field shape modulo
+    // `signing_key_id`; checks are otherwise identical.
+    let (executed_at, weather_observation_time) = match &parsed_exec {
+        ParsedExecutionReceipt::V2(p) => {
+            if let Err(e) = validate_execution_receipt_tags(p) {
+                return StepResult {
+                    name: StepName::BundleShape,
+                    status: StepStatus::Fail(format!("exec receipt validation: {}", e)),
+                    detail: None,
+                };
+            }
+            (p.executed_at.clone(), p.weather_observation_time.clone())
+        }
+        ParsedExecutionReceipt::V3(p) => {
+            if let Err(e) = validate_execution_receipt_tags_v3(p) {
+                return StepResult {
+                    name: StepName::BundleShape,
+                    status: StepStatus::Fail(format!("exec receipt validation: {}", e)),
+                    detail: None,
+                };
+            }
+            (p.executed_at.clone(), p.weather_observation_time.clone())
+        }
+    };
+
+    if let Err(e) = chrono_parse_canonical(&executed_at) {
+        return StepResult {
+            name: StepName::BundleShape,
+            status: StepStatus::Fail(format!("exec.executed_at: {}", e)),
+            detail: None,
+        };
+    }
+    if let Some(obs) = &weather_observation_time
+        && let Err(e) = chrono_parse_canonical(obs)
+    {
+        return StepResult {
+            name: StepName::BundleShape,
+            status: StepStatus::Fail(format!("exec.weather_observation_time: {}", e)),
+            detail: None,
+        };
+    }
+
+    StepResult {
+        name: StepName::BundleShape,
+        status: StepStatus::Pass,
+        detail: None,
     }
 }
 
@@ -799,19 +982,24 @@ mod tests {
         let winners = draw(&entries, &seed_bytes, 2).unwrap();
         let results_array: Vec<String> = winners.iter().map(|w| w.entry_id.clone()).collect();
 
-        // Build lock receipt JCS — use serde_json::json! which sorts keys alphabetically (BTreeMap)
+        // Lock receipt JCS — field set matches `LockReceiptV4` exactly so
+        // BundleShape passes. json! → BTreeMap → alphabetical key order
+        // (consistent with JCS).
         let lock_jcs = serde_json::json!({
             "commitment_hash": "0000000000000000000000000000000000000000000000000000000000000000",
             "drand_chain": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
             "drand_round": 12345,
             "draw_id": "22222222-2222-2222-2222-222222222222",
+            "entropy_composition": "drand-quicknet+openmeteo-v1",
             "entry_hash": &ehash,
             "fair_pick_version": "0.1.0",
+            "jcs_version": "sha256-jcs-v1",
             "locked_at": "2026-04-09T12:00:00.000000Z",
             "operator_id": "11111111-1111-1111-1111-111111111111",
             "operator_slug": "acme-prizes",
-            "schema_version": "3",
+            "schema_version": "4",
             "sequence": 1,
+            "signature_algorithm": "ed25519",
             "signing_key_id": "deadbeef",
             "wallop_core_version": "0.14.1",
             "weather_station": "middle-wallop",
@@ -829,17 +1017,22 @@ mod tests {
             "drand_randomness": drand_randomness,
             "drand_round": 12345,
             "drand_signature": "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+            "drand_signature_algorithm": "bls12_381_g2",
             "draw_id": "22222222-2222-2222-2222-222222222222",
+            "entropy_composition": "drand-quicknet+openmeteo-v1",
             "entry_hash": &ehash,
             "executed_at": "2026-04-09T12:15:00.000000Z",
-            "execution_schema_version": "1",
             "fair_pick_version": "0.1.0",
+            "jcs_version": "sha256-jcs-v1",
             "lock_receipt_hash": &lrh,
+            "merkle_algorithm": "sha256-pairwise-v1",
             "operator_id": "11111111-1111-1111-1111-111111111111",
             "operator_slug": "acme-prizes",
             "results": &results_array,
+            "schema_version": "2",
             "seed": &seed_hex,
             "sequence": 1,
+            "signature_algorithm": "ed25519",
             "wallop_core_version": "0.14.1",
             "weather_fallback_reason": null,
             "weather_observation_time": "2026-04-09T12:10:00.000000Z",
@@ -1042,6 +1235,7 @@ mod tests {
             ],
             operator_key_id: None,
             infra_key_id: None,
+            mode: VerifierMode::SelfConsistencyOnly,
         };
         assert!(report.passed());
         assert_eq!(report.error_count(), 0);
@@ -1069,6 +1263,7 @@ mod tests {
             ],
             operator_key_id: None,
             infra_key_id: None,
+            mode: VerifierMode::SelfConsistencyOnly,
         };
         assert!(!report.passed());
         assert_eq!(report.error_count(), 1);
@@ -1084,6 +1279,7 @@ mod tests {
             }],
             operator_key_id: None,
             infra_key_id: None,
+            mode: VerifierMode::SelfConsistencyOnly,
         };
         assert!(!report.passed());
     }
@@ -1161,13 +1357,14 @@ mod tests {
         let all = StepName::all();
         assert_eq!(
             all.len(),
-            11,
-            "all() should return all 11 StepName variants"
+            12,
+            "all() should return all 12 StepName variants"
         );
         assert!(all.contains(&StepName::EntryHash));
         assert!(all.contains(&StepName::DrandBlsSignature));
         assert!(all.contains(&StepName::ReceiptFieldConsistency));
         assert!(all.contains(&StepName::WeatherObservationWindow));
+        assert!(all.contains(&StepName::BundleShape));
     }
 
     #[test]
@@ -1193,5 +1390,178 @@ mod tests {
             "expected HexMismatch detail, got {:?}",
             step_5a.detail
         );
+    }
+
+    // ── A1/A2/A3: BundleShape gate ─────────────────────────────────────
+
+    /// Mutate the lock receipt's signed JCS payload by injecting/replacing a
+    /// field. Re-signs the lock receipt so the signature step still passes;
+    /// this isolates the BundleShape gate's behaviour from signature checks.
+    fn rewrite_lock_payload(
+        bundle_json: &str,
+        mutator: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+    ) -> String {
+        use ed25519_dalek::{Signer, SigningKey};
+
+        let mut val: serde_json::Value = serde_json::from_str(bundle_json).unwrap();
+        let lock_jcs_str = val["lock_receipt"]["payload_jcs"].as_str().unwrap();
+        let mut lock_obj: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(lock_jcs_str).unwrap();
+        mutator(&mut lock_obj);
+
+        // Re-serialize via BTreeMap to keep alphabetical ordering (JCS).
+        let sorted: std::collections::BTreeMap<String, serde_json::Value> =
+            lock_obj.into_iter().collect();
+        let new_jcs = serde_json::to_string(&sorted).unwrap();
+
+        let secret_bytes: [u8; 32] =
+            hex::decode("9D61B19DEFFD5A60BA844AF492EC2CC44449C5697B326919703BAC031CAE7F60")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let sk = SigningKey::from_bytes(&secret_bytes);
+        let new_sig_hex = hex::encode(sk.sign(new_jcs.as_bytes()).to_bytes());
+
+        val["lock_receipt"]["payload_jcs"] = serde_json::json!(new_jcs);
+        val["lock_receipt"]["signature_hex"] = serde_json::json!(new_sig_hex);
+        val.to_string()
+    }
+
+    #[test]
+    fn bundle_shape_passes_on_valid_bundle() {
+        let (json, _) = valid_signed_bundle();
+        let bundle = ProofBundle::from_json(&json).unwrap();
+        let report = verify_bundle(&bundle);
+        let shape = report
+            .steps
+            .iter()
+            .find(|s| s.name == StepName::BundleShape)
+            .expect("BundleShape step present");
+        assert!(
+            matches!(shape.status, StepStatus::Pass),
+            "expected Pass, got {:?}",
+            shape.status
+        );
+    }
+
+    #[test]
+    fn bundle_shape_rejects_unknown_field_on_lock_receipt() {
+        let (json, _) = valid_signed_bundle();
+        let tampered = rewrite_lock_payload(&json, |obj| {
+            obj.insert("backdoor".into(), serde_json::Value::String("evil".into()));
+        });
+        let bundle = ProofBundle::from_json(&tampered).unwrap();
+        let report = verify_bundle(&bundle);
+        let shape = report
+            .steps
+            .iter()
+            .find(|s| s.name == StepName::BundleShape)
+            .expect("BundleShape step present");
+        assert!(
+            matches!(&shape.status, StepStatus::Fail(msg) if msg.contains("lock receipt")),
+            "expected lock-receipt Fail, got {:?}",
+            shape.status
+        );
+    }
+
+    #[test]
+    fn bundle_shape_rejects_unknown_lock_schema_version() {
+        let (json, _) = valid_signed_bundle();
+        let tampered = rewrite_lock_payload(&json, |obj| {
+            obj.insert(
+                "schema_version".into(),
+                serde_json::Value::String("99".into()),
+            );
+        });
+        let bundle = ProofBundle::from_json(&tampered).unwrap();
+        let report = verify_bundle(&bundle);
+        let shape = report
+            .steps
+            .iter()
+            .find(|s| s.name == StepName::BundleShape)
+            .expect("BundleShape step present");
+        assert!(
+            matches!(&shape.status, StepStatus::Fail(msg) if msg.contains("schema_version")),
+            "expected schema_version Fail, got {:?}",
+            shape.status
+        );
+    }
+
+    #[test]
+    fn bundle_shape_rejects_bad_algorithm_tag() {
+        let (json, _) = valid_signed_bundle();
+        let tampered = rewrite_lock_payload(&json, |obj| {
+            obj.insert(
+                "signature_algorithm".into(),
+                serde_json::Value::String("evil".into()),
+            );
+        });
+        let bundle = ProofBundle::from_json(&tampered).unwrap();
+        let report = verify_bundle(&bundle);
+        let shape = report
+            .steps
+            .iter()
+            .find(|s| s.name == StepName::BundleShape)
+            .expect("BundleShape step present");
+        assert!(
+            matches!(&shape.status, StepStatus::Fail(msg) if msg.contains("signature_algorithm")),
+            "expected signature_algorithm Fail, got {:?}",
+            shape.status
+        );
+    }
+
+    #[test]
+    fn bundle_shape_rejects_bad_weather_station_charset() {
+        let (json, _) = valid_signed_bundle();
+        let tampered = rewrite_lock_payload(&json, |obj| {
+            obj.insert(
+                "weather_station".into(),
+                serde_json::Value::String("Middle-Wallop".into()),
+            );
+        });
+        let bundle = ProofBundle::from_json(&tampered).unwrap();
+        let report = verify_bundle(&bundle);
+        let shape = report
+            .steps
+            .iter()
+            .find(|s| s.name == StepName::BundleShape)
+            .expect("BundleShape step present");
+        assert!(
+            matches!(&shape.status, StepStatus::Fail(msg) if msg.contains("weather_station")),
+            "expected weather_station Fail, got {:?}",
+            shape.status
+        );
+    }
+
+    #[test]
+    fn bundle_shape_rejects_non_canonical_locked_at() {
+        let (json, _) = valid_signed_bundle();
+        // Non-canonical: +00:00 instead of Z.
+        let tampered = rewrite_lock_payload(&json, |obj| {
+            obj.insert(
+                "locked_at".into(),
+                serde_json::Value::String("2026-04-09T12:00:00.000000+00:00".into()),
+            );
+        });
+        let bundle = ProofBundle::from_json(&tampered).unwrap();
+        let report = verify_bundle(&bundle);
+        let shape = report
+            .steps
+            .iter()
+            .find(|s| s.name == StepName::BundleShape)
+            .expect("BundleShape step present");
+        assert!(
+            matches!(&shape.status, StepStatus::Fail(msg) if msg.contains("locked_at")),
+            "expected locked_at Fail, got {:?}",
+            shape.status
+        );
+    }
+
+    #[test]
+    fn verification_report_carries_self_consistency_mode() {
+        let (json, _) = valid_signed_bundle();
+        let bundle = ProofBundle::from_json(&json).unwrap();
+        let report = verify_bundle(&bundle);
+        assert_eq!(report.mode, VerifierMode::SelfConsistencyOnly);
     }
 }

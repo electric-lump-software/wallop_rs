@@ -257,11 +257,12 @@ mod tests {
             steps,
             operator_key_id: None,
             infra_key_id: None,
+            mode: wallop_verifier::verify_steps::VerifierMode::SelfConsistencyOnly,
         }
     }
 
     fn all_pass_report() -> VerificationReport {
-        make_report(vec![StepStatus::Pass; 11])
+        make_report(vec![StepStatus::Pass; 12])
     }
 
     fn mixed_report() -> VerificationReport {

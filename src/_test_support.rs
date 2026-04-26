@@ -53,19 +53,23 @@ pub fn build_valid_bundle(entries: &[Entry], weather: Option<&str>, winner_count
     let results_array: Vec<String> = winners.iter().map(|w| w.entry_id.clone()).collect();
 
     // Lock receipt — json! macro uses BTreeMap which sorts keys alphabetically,
-    // consistent with JCS expectations.
+    // consistent with JCS expectations. Field set matches `LockReceiptV4`
+    // exactly so the typed parser + tag validators (BundleShape step) pass.
     let lock_jcs = serde_json::json!({
         "commitment_hash": "00".repeat(32),
         "drand_chain": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
         "drand_round": 12345,
         "draw_id": "22222222-2222-2222-2222-222222222222",
+        "entropy_composition": "drand-quicknet+openmeteo-v1",
         "entry_hash": &ehash,
         "fair_pick_version": "0.1.0",
+        "jcs_version": "sha256-jcs-v1",
         "locked_at": "2026-04-09T12:00:00.000000Z",
         "operator_id": "11111111-1111-1111-1111-111111111111",
         "operator_slug": "acme-prizes",
-        "schema_version": "3",
+        "schema_version": "4",
         "sequence": 1,
+        "signature_algorithm": "ed25519",
         "signing_key_id": "deadbeef",
         "wallop_core_version": "0.14.1",
         "weather_station": "middle-wallop",
@@ -76,23 +80,28 @@ pub fn build_valid_bundle(entries: &[Entry], weather: Option<&str>, winner_count
     let lock_sig_hex = hex::encode(sk.sign(lock_jcs.as_bytes()).to_bytes());
     let lrh = lock_receipt_hash(&lock_jcs);
 
-    // Execution receipt
+    // Execution receipt — field set matches `ExecutionReceiptV2` exactly.
     let exec_jcs = serde_json::json!({
         "drand_chain": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
         "drand_randomness": drand,
         "drand_round": 12345,
         "drand_signature": "00".repeat(48),
+        "drand_signature_algorithm": "bls12_381_g2",
         "draw_id": "22222222-2222-2222-2222-222222222222",
+        "entropy_composition": "drand-quicknet+openmeteo-v1",
         "entry_hash": &ehash,
         "executed_at": "2026-04-09T12:15:00.000000Z",
-        "execution_schema_version": "1",
         "fair_pick_version": "0.1.0",
+        "jcs_version": "sha256-jcs-v1",
         "lock_receipt_hash": &lrh,
+        "merkle_algorithm": "sha256-pairwise-v1",
         "operator_id": "11111111-1111-1111-1111-111111111111",
         "operator_slug": "acme-prizes",
         "results": &results_array,
+        "schema_version": "2",
         "seed": &seed_hex,
         "sequence": 1,
+        "signature_algorithm": "ed25519",
         "wallop_core_version": "0.14.1",
         "weather_fallback_reason": null,
         "weather_observation_time": if weather.is_some() { serde_json::json!("2026-04-09T12:10:00.000000Z") } else { serde_json::Value::Null },
