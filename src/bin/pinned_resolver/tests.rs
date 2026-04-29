@@ -2,9 +2,8 @@
 //!
 //! Most tests load the canonical cross-language vector at
 //! `vendor/wallop/spec/vectors/pin/v1/valid.json` (committed via the
-//! submodule pin at the wallop repo's `feat/keyring-pin-producer`
-//! merge commit). The vector ships a deterministic test keypair, a
-//! valid signed envelope, and five negative cases:
+//! `vendor/wallop` submodule pin). The vector ships a deterministic
+//! test keypair, a valid signed envelope, and five negative cases:
 //!
 //! 1. single-byte preimage mutation rejects
 //! 2. single-byte signature mutation rejects

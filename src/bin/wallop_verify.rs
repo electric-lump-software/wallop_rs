@@ -94,13 +94,6 @@ struct Cli {
     /// override path cannot bypass it.
     #[arg(long, value_name = "JSON")]
     infra_key_pin: Vec<String>,
-
-    /// Suppress the SHOULD-warn message when the pin's `published_at` is
-    /// more than 24 hours behind the verifier's clock. Useful for
-    /// archival re-verification of historical bundles where a stale pin
-    /// is expected.
-    #[arg(long)]
-    no_stale_warn: bool,
 }
 
 /// CLI surface for `--mode`. Distinct from `wallop_verifier::VerifierMode`
@@ -192,13 +185,7 @@ fn main() -> ExitCode {
                         return ExitCode::from(2);
                     }
                 };
-                run_verify_attributable(
-                    path,
-                    &base_url,
-                    &pin_url,
-                    &cli.infra_key_pin,
-                    cli.no_stale_warn,
-                )
+                run_verify_attributable(path, &base_url, &pin_url, &cli.infra_key_pin)
             }
             ModeFlag::Attestable => {
                 let base_url = match cli.wallop_base_url.as_deref() {
@@ -587,7 +574,6 @@ fn run_verify_attributable(
     base_url: &str,
     pin_url: &str,
     infra_key_pin_overrides: &[String],
-    no_stale_warn: bool,
 ) -> ExitCode {
     use pinned_resolver::{AnchorRecord, PinError, PinnedResolver};
     use wallop_verifier::anchors::ANCHORS as BUNDLED_ANCHORS;
@@ -697,10 +683,12 @@ fn run_verify_attributable(
         return ExitCode::from(1);
     }
 
-    // SHOULD-warn for stale pins (spec §4.2.4 freshness rule, advisory side).
-    // Implementation pending — current build does not emit a stale warning;
-    // the flag is wired so future activation does not break the CLI surface.
-    let _ = no_stale_warn;
+    // SHOULD-warn for stale pins (spec §4.2.4 freshness rule, advisory side)
+    // is not yet implemented. When the warning lands, a `--no-stale-warn`
+    // opt-out flag will be added at the same time. Pre-launch breaking
+    // changes are free; shipping the flag as a wired no-op promised a
+    // behaviour the binary did not have (goal-3 violation), so it is
+    // deliberately absent until the warning ships.
 
     let report = verify_bundle_with(&bundle, &resolver, VerifierMode::Attributable);
     print_report(&bundle, &report, None);

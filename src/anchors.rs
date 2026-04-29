@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn bundled_set_holds_at_most_two_anchors() {
         // Spec §4.2.4 cadence rule. Before bumping past 2, re-read the
-        // ADR-0011 cadence section; the size is part of the protocol's
+        // §4.2.4 cadence section; the size is part of the protocol's
         // operational contract, not a free-form choice.
         assert!(
             ANCHORS.len() <= 2,

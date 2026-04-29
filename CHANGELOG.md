@@ -13,7 +13,7 @@ Closes the last "no holes" gap from the 0.15.0 release notes — the trust scope
 
 - `wallop_verifier::anchors` — bundled trust anchor for tier-1 attributable verification. Holds the wallop production infrastructure public keys plus their `inserted_at` timestamps; sourced via `mix wallop.export_infra_anchor` against production. N=2 cadence per spec §4.2.4 (current + previous within a 90-day grace window). `revoked_at` is `None` for currently-active anchors.
 - `PinnedResolver` (binary-side) — wraps `EndpointResolver` and adds: pin envelope fetch + structural validation, JCS pre-image reconstruction, Ed25519 signature verification against the bundled (or override-supplied) anchor set with a `"wallop-pin-v1\n"` 14-byte domain separator, temporal-window check on the verifying anchor, freshness check (60s future-skew → `PinPublishedInFuture`), strict per-resolution equality between live `EndpointResolver` keys and pin keys (operator-class only), and direct anchor lookup for infrastructure-class signatures.
-- CLI flags: `--mode attributable` no longer hard-errors; `--pin-from-url <URL>` (required); `--infra-key-pin <JSON>` (repeatable, REPLACES the bundled set, never extends); `--no-stale-warn` opt-out for archival re-verification (advisory side of the freshness rule, currently passthrough — wired so future activation does not break the CLI surface).
+- CLI flags: `--mode attributable` no longer hard-errors; `--pin-from-url <URL>` (required); `--infra-key-pin <JSON>` (repeatable, REPLACES the bundled set, never extends). The `--no-stale-warn` opt-out flag (advisory side of the §4.2.4 freshness rule) is intentionally absent until the warning itself ships in a follow-up; shipping a wired no-op flag would promise a behaviour the binary does not have.
 - Cross-language conformance: `vendor/wallop` submodule pinned at the wallop repo's keyring-pin-producer commit. Vector at `spec/vectors/pin/v1/valid.json` ships 1 valid + 5 negatives (preimage mutation, signature mutation, wrong key, domain-separator-omitted, reversed-input key sort) and is exercised by the new `pinned_resolver::tests` module.
 
 ### Changed
@@ -59,7 +59,7 @@ After every successful `KeyResolver::resolve`, the verification pipeline now ref
 
 Both rejections drop the resolved key, surfacing as a signature-step failure with a `ResolutionFailure` step detail naming the rejection kind (see below) — and consequently a `TemporalBinding` skip for "no resolved key from previous step."
 
-### Added — `ResolutionFailure` step detail (PAM-1085)
+### Added — `ResolutionFailure` step detail
 
 The signature steps (`LockSignature` / `ExecSignature`) now distinguish resolver failures from generic signature failures. Previously every resolver failure (`KeyNotFound`, `Unreachable`, `MalformedResponse`, `InconsistentRow`, etc.) collapsed to `"Ed25519 signature invalid"`. Now they surface a typed `StepDetail::ResolutionFailure { class, kind }` with seven distinct variants:
 

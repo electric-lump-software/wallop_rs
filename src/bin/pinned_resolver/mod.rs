@@ -12,8 +12,8 @@
 //!    endpoint, per spec §4.2.4 "Infrastructure-class signature
 //!    resolution in attributable mode."
 //!
-//! See `crate::anchors` for the bundled trust anchor and ADR-0011 for
-//! the design rationale.
+//! See `crate::anchors` for the bundled trust anchor and spec §4.2.4
+//! for the design rationale.
 //!
 //! ## CLI integration
 //!
@@ -25,7 +25,6 @@
 //! controlled override anchor record. Override REPLACES the bundled
 //! set; it never extends it.
 
-use std::collections::BTreeMap;
 use std::io::Read;
 use std::time::Duration;
 
@@ -358,6 +357,24 @@ impl KeyResolver for PinnedResolver {
                     .find(|a| a.key_id == requested_key_id)
                     .ok_or(ResolutionError::KeyNotFound)?;
 
+                // **Documented trust assumption (spec §4.2.4 goal-3
+                // pattern).** This resolver returns `inserted_at` only;
+                // `revoked_at` is not propagated through `ResolvedKey`.
+                // The pipeline's `TemporalBinding` step compares the
+                // receipt's binding timestamp against `inserted_at`
+                // alone. Consequence: a bundled anchor with a populated
+                // `revoked_at` would still resolve receipts signed
+                // *after* its revocation. In 1.0.0 this gap is
+                // unreachable via bundled anchors (production wallop's
+                // revocation flow is "remove from bundled set in next
+                // crate release", not "set revoked_at"). Override
+                // anchors supplied via `--infra-key-pin` may carry
+                // `revoked_at`, but the verifier user supplied them
+                // deliberately (historical re-verification escape
+                // hatch) and we honour that. Closing this gap properly
+                // requires a `ResolvedKey { revoked_at }` field and a
+                // `TemporalBinding` step extension — a `verify_steps`
+                // API change out of scope for 0.16.0; tracked for 1.y.
                 Ok(ResolvedKey {
                     public_key: anchor.public_key,
                     inserted_at: InsertedAt::At(anchor.inserted_at.clone()),
@@ -546,46 +563,17 @@ fn reconstruct_preimage(bytes: &[u8]) -> Result<Vec<u8>, PinError> {
     // producer signs the absent-member form.
     obj.remove("infrastructure_signature");
 
-    // JCS-canonicalise: sort object keys recursively at every level,
-    // arrays preserve order. Spec §4.2.2.
-    let canonical = jcs_canonicalize(&serde_json::Value::Object(obj));
+    // RFC 8785 JCS canonicalisation. Use `serde_jcs` rather than
+    // hand-rolling: `serde_json::to_string` does not escape U+2028 /
+    // U+2029 per RFC 8785 §3.2.2.2, and number serialisation diverges
+    // for non-integer floats. Hand-rolling is correct for the pin
+    // envelope's value types today (ASCII strings only) but a future
+    // free-form-string field would silently bypass the signature check.
+    // `serde_jcs` is RFC-conformant and removes us from the
+    // canonicaliser-maintenance business.
+    let canonical = serde_jcs::to_string(&serde_json::Value::Object(obj))
+        .map_err(|e| PinError::SchemaMismatch(format!("JCS canonicalisation failed: {}", e)))?;
     Ok(canonical.into_bytes())
-}
-
-/// Recursive RFC 8785 JCS canonicaliser. Object keys sort
-/// lexicographically by Unicode code point (equivalent to byte-order
-/// for ASCII keys, which is all the pin envelope uses). Arrays
-/// preserve order. Strings, numbers, bools, and null serialise via
-/// `serde_json` (which matches RFC 8785 for the value types that
-/// appear in the pin envelope — there are no floats or non-ASCII
-/// strings to worry about in 1.0.0).
-fn jcs_canonicalize(value: &serde_json::Value) -> String {
-    use serde_json::Value;
-    match value {
-        Value::Null => "null".into(),
-        Value::Bool(true) => "true".into(),
-        Value::Bool(false) => "false".into(),
-        Value::Number(n) => n.to_string(),
-        Value::String(s) => serde_json::to_string(s).unwrap(),
-        Value::Array(arr) => {
-            let parts: Vec<String> = arr.iter().map(jcs_canonicalize).collect();
-            format!("[{}]", parts.join(","))
-        }
-        Value::Object(map) => {
-            // BTreeMap → keys sorted by ASCII byte-order, equivalent to
-            // RFC 8785 lexicographic-by-Unicode-code-point for ASCII.
-            let sorted: BTreeMap<&String, &Value> = map.iter().collect();
-            let parts: Vec<String> = sorted
-                .iter()
-                .map(|(k, v)| {
-                    let ks = serde_json::to_string(k).unwrap();
-                    let vs = jcs_canonicalize(v);
-                    format!("{}:{}", ks, vs)
-                })
-                .collect();
-            format!("{{{}}}", parts.join(","))
-        }
-    }
 }
 
 // ---------- signature ----------
@@ -613,7 +601,7 @@ fn find_verifying_anchor<'a>(
     anchors: &'a [AnchorRecord],
     published_at: &str,
 ) -> Result<&'a AnchorRecord, PinError> {
-    use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+    use ed25519_dalek::{Signature, VerifyingKey};
 
     let sig = Signature::from_bytes(signature);
     let mut signed = Vec::with_capacity(DOMAIN_SEPARATOR.len() + preimage.len());
@@ -643,7 +631,11 @@ fn find_verifying_anchor<'a>(
             Ok(vk) => vk,
             Err(_) => continue,
         };
-        if vk.verify(&signed, &sig).is_ok() {
+        // `verify_strict` rejects non-canonical `s` and edge-case `R`
+        // values that the permissive `verify` accepts. Defence-in-depth
+        // against signature malleability. No known active attack against
+        // the pin (we control the producer), but strict mode is free.
+        if vk.verify_strict(&signed, &sig).is_ok() {
             return Ok(anchor);
         }
     }
