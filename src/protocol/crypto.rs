@@ -22,3 +22,7 @@ mod tests;
 #[cfg(test)]
 #[path = "key_rotation_tests.rs"]
 mod key_rotation_tests;
+
+#[cfg(test)]
+#[path = "pre_lock_vector_tests.rs"]
+mod pre_lock_vector_tests;
